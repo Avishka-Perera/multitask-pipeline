@@ -8,7 +8,6 @@ import torch
 import numpy as np
 from typing import Tuple
 from tqdm import tqdm
-from ..constants import img_wh
 import re
 import yaml
 import importlib
@@ -35,26 +34,6 @@ def open_network_img(url: str) -> Image:
         return img
     else:
         raise RuntimeError("404: Image was not found")
-
-
-def load_image(
-    path: str, reshape=False, target="flow"
-) -> Tuple[Image.Image, torch.Tensor]:
-    img = Image.open(path)
-    ten = torch.FloatTensor(
-        np.array(img).transpose(2, 0, 1).astype(np.float32) * (1.0 / 255.0)
-    )
-    if reshape:
-        _, origHeight, origWidth = ten.shape
-        ten = ten.view(1, 3, origHeight, origWidth)
-        ten = torch.nn.functional.interpolate(
-            input=ten,
-            size=img_wh[::-1],
-            mode="bilinear",
-            align_corners=False,
-        )
-
-    return img, ten
 
 
 def images_to_gif(input_dir: str, output_path: str, duration=100, quality=75):

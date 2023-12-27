@@ -1,13 +1,12 @@
 import os
 import torch
-from src.util import flatten_leads
 from sklearn.metrics import confusion_matrix
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict
 from ._base import BaseEvaluator
-from ..util import Logger
+from ..util import Logger, flatten_leads
 from torch import distributed as dist
 
 
