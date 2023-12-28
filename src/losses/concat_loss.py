@@ -2,10 +2,9 @@ import torch
 from omegaconf.dictconfig import DictConfig
 from typing import Dict, Sequence
 from ..util import load_class
-from ._base import BaseLoss
 
 
-class ConcatLoss(BaseLoss):
+class ConcatLoss:
     def __init__(
         self,
         device: int,

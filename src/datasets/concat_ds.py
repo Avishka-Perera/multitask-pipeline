@@ -1,13 +1,13 @@
-from torch.utils.data import ConcatDataset
+from torch.utils.data import ConcatDataset, Dataset
 from typing import Sequence
 from ..util import load_class
-from ._base import BaseDataset
 from typing import Dict
 from omegaconf import OmegaConf
 from omegaconf.listconfig import ListConfig
 
 
-class ConcatSet(BaseDataset):
+class ConcatSet(Dataset):
+    valid_splits = ["train", "test", "val"]
     default_comp_conf = OmegaConf.create(
         {
             "reps": 1,
