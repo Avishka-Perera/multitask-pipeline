@@ -7,7 +7,8 @@ sys.path.append(root_dir)
 import os
 from argparse import ArgumentParser
 import glob
-from dataset import test as test_dataset
+from datasets import test as test_dataset
+from learners import test as test_learner
 from mt_pipe.util import Logger
 import yaml
 from omegaconf import OmegaConf
@@ -89,7 +90,7 @@ if __name__ == "__main__":
 
     conf_paths = glob.glob(f"{args.conf_dir}/*.yaml")
     conf_names = [".".join(os.path.split(p)[1].split(".")[:-1]) for p in conf_paths]
-    valid_conf_names = ["datasets"]
+    valid_conf_names = ["datasets", "learners"]
     assert all(
         [n in valid_conf_names for n in conf_names]
     ), f"Invalid configuration file name"
@@ -101,3 +102,7 @@ if __name__ == "__main__":
         if args.mode in ["all", conf_name]:
             if conf_name == "datasets":
                 test_dataset(logger=logger, conf=conf, test_cnt=args.dataset_test_cnt)
+            if conf_name == "learners":
+                test_learner(logger=logger, conf=conf, devices=args.devices)
+
+        print()

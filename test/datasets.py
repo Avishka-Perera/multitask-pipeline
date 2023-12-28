@@ -2,7 +2,6 @@ from omegaconf import OmegaConf
 from mt_pipe.util import Logger, load_class
 import numpy as np
 from torch.utils.data import Dataset, Subset
-from omegaconf.dictconfig import DictConfig
 import torch
 
 
@@ -30,16 +29,12 @@ def test(logger: Logger, conf: OmegaConf, test_cnt: int) -> None:
                 for sample in ds:
                     for itm_nm, itm_conf in conf.sample_conf.items():
                         itm = sample[itm_nm]
-                        for k, v in itm_conf.items():
-                            if type(v) == DictConfig:
-                                val = str(eval(f"itm.{k}"))
-                                assert eval(f"itm.{k} {v.op} {v.lim}"), (
-                                    eval(f"itm.{k}"),
-                                    v.op,
-                                    f"{v.lim}",
-                                )
-                            else:
-                                assert str(eval(f"itm.{k}")) == str(v), (
-                                    str(eval(f"itm.{k}")),
-                                    v,
-                                )
+                        for atr, trgt in itm_conf.items():
+                            if atr == "dtype":
+                                assert itm.dtype == load_class(trgt)
+                            if atr == "shape":
+                                assert itm.shape == torch.Size(trgt)
+                            if atr == "min":
+                                assert itm.min() >= trgt
+                            if atr == "max":
+                                assert itm.max() <= trgt
