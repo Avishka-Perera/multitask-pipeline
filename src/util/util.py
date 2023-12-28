@@ -241,13 +241,6 @@ def download_s3_directory(s3_uri, local_path, show_pbar=False):
                 print(f"Downloaded: {object_key} to {local_file_path}")
 
 
-def flatten_leads(tens: torch.Tensor, dim_count: int) -> torch.Tensor:
-    merge_dims = tens.shape[:dim_count]
-    unchn_dims = tens.shape[dim_count:]
-    new_shape = [np.prod(merge_dims), *unchn_dims]
-    return tens.view(*new_shape)
-
-
 def load_states(model: Module, sd, model_map_info, logger=None):
     # load model states
     for i, layer_map_info in enumerate(model_map_info):
@@ -270,3 +263,10 @@ def load_states(model: Module, sd, model_map_info, logger=None):
             status = module.load_state_dict(new_sd)
             if logger is not None:
                 logger.info(f"{i}, {status}")
+
+
+def flatten_leads(tens: torch.Tensor, dim_count: int) -> torch.Tensor:
+    merge_dims = tens.shape[:dim_count]
+    unchn_dims = tens.shape[dim_count:]
+    new_shape = [np.prod(merge_dims), *unchn_dims]
+    return tens.view(*new_shape)
