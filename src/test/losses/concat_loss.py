@@ -1,8 +1,8 @@
 from omegaconf import OmegaConf
-from src.util import Logger, is_lists_equal
+from ...util import Logger, is_lists_equal
 import torch
 import numpy as np
-from src.losses import ConcatLoss, MMCRLoss, CrossEntropyLoss
+from ..losses import ConcatLoss, MMCRLoss, CrossEntropyLoss
 from .mmcr import validate_losspack as validate_mmcr_losspack
 from .cross_entropy import validate_losspack as validate_ce_losspack
 

@@ -2,7 +2,6 @@ from abc import abstractmethod
 from typing import Dict, Sequence
 from torch import Tensor
 from torch import nn
-from ..util import Logger
 
 
 class BaseLearner(nn.Module):
@@ -10,7 +9,7 @@ class BaseLearner(nn.Module):
     device_count: int = None
 
     @abstractmethod
-    def __init__(self, devices: Sequence[int], logger: Logger, *args, **kwargs) -> None:
+    def __init__(self, devices: Sequence[int], *args, **kwargs) -> None:
         super().__init__()
 
     @abstractmethod
