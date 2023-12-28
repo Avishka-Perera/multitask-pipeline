@@ -1,10 +1,19 @@
+import os
+import sys
+
+mt_pipe_path = [p for p in sys.path if p.endswith("mt_pipe")]
+if len(mt_pipe_path) > 0:
+    mt_pipe_path = mt_pipe_path[0]
+    main_dir = os.path.join(mt_pipe_path, os.pardir)
+    sys.path.append(main_dir)
+
 import argparse
 import ast
-from src.util import Trainer
-from src.util import set_all_seeds, Logger
+from mt_pipe.util import Trainer
+from mt_pipe.util import set_all_seeds, Logger
 import torch
-from src.util.ddp import setup, cleanup, spawn
-from src.constants import analysis_levels, log_levels
+from mt_pipe.util.ddp import setup, cleanup, spawn
+from mt_pipe.constants import analysis_levels, log_levels
 
 
 def parse_args():

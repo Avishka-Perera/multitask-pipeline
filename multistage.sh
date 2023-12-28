@@ -107,7 +107,7 @@ for ((i = 0; i < length; i++)); do
     if [ -n "$mock_epoch_count" ]; then
         options+=("--mock-epoch-count" "$mock_epoch_count")
     fi
-    python_command="python singlestage.py ${options[@]}"
+    python_command="python mt_pipe/singlestage.py ${options[@]}"
     eval "$python_command"
 
     if [ $? -ne 0 ]; then
