@@ -3,13 +3,14 @@ import os
 
 root_dir = os.path.join(os.path.dirname(__file__), os.pardir)
 sys.path.append(root_dir)
+sys.path.remove(os.path.dirname(__file__))
 
 import os
 from argparse import ArgumentParser
 import glob
-from mt_pipe.test.external.datasets import test as test_dataset
-from mt_pipe.test.external.learners import test as test_learner
-from mt_pipe.util import Logger
+from mt_pipe.src.test.external.datasets import test as test_dataset
+from mt_pipe.src.test.external.learners import test as test_learner
+from mt_pipe.src.util import Logger
 import yaml
 from omegaconf import OmegaConf
 

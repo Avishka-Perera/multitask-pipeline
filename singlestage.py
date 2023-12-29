@@ -3,14 +3,15 @@ import sys
 
 root_dir = os.path.join(os.path.dirname(__file__), os.pardir)
 sys.path.append(root_dir)
+sys.path.remove(os.path.dirname(__file__))
 
 import argparse
 import ast
-from mt_pipe.util import Trainer
-from mt_pipe.util import set_all_seeds, Logger
+from mt_pipe.src.util import Trainer
+from mt_pipe.src.util import set_all_seeds, Logger
 import torch
-from mt_pipe.util.ddp import setup, cleanup, spawn
-from mt_pipe.constants import analysis_levels, log_levels
+from mt_pipe.src.util.ddp import setup, cleanup, spawn
+from mt_pipe.src.constants import analysis_levels, log_levels
 
 
 def parse_args():

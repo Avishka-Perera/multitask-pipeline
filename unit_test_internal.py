@@ -1,17 +1,13 @@
 from argparse import ArgumentParser
 import logging
 import random
-import sys
-import os
+from src.util import set_all_seeds, Logger
+from src.test.internal.models import test as test_model
+from src.test.internal.losses import test as test_cost
+from src.test.internal.evaluators import test as test_evaluator
+from src.test.internal.datasets import test as test_dataset
 
-root_dir = os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
-sys.path.append(root_dir)
-from util import set_all_seeds, Logger
-from src.test.datasets import test as test_dataset
-from src.test.models import test as test_model
-from src.test.losses import test as test_cost
-from src.test.other import test as test_other
-from src.test.evaluators import test as test_evaluator
+# from src.test.internal.other import test as test_other
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(name)s:%(levelname)s: %(message)s"

@@ -1,5 +1,5 @@
 from omegaconf import OmegaConf
-from mt_pipe.util import Logger, load_class
+from mt_pipe.src.util import Logger, load_class
 import numpy as np
 from torch.utils.data import Dataset, Subset
 import torch

@@ -12,9 +12,9 @@ def test(device: int, logger: Logger) -> None:
 
     conf1 = OmegaConf.create(
         {
-            "mmcr": {"target": "mt_pipe.losses.MMCRLoss", "params": {"lamb": 1}},
+            "mmcr": {"target": "src.losses.MMCRLoss", "params": {"lamb": 1}},
             "cross_entropy": {
-                "target": "mt_pipe.losses.CrossEntropyLoss",
+                "target": "src.losses.CrossEntropyLoss",
                 "params": {"has_aug_ax": True},
             },
         }

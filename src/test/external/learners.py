@@ -1,5 +1,5 @@
 import torch
-from mt_pipe.util import Logger, load_class
+from mt_pipe.src.util import Logger, load_class
 from omegaconf import OmegaConf
 from typing import Sequence
 
