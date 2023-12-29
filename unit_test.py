@@ -7,8 +7,8 @@ sys.path.append(root_dir)
 import os
 from argparse import ArgumentParser
 import glob
-from mt_pipe.test_src.datasets import test as test_dataset
-from mt_pipe.test_src.learners import test as test_learner
+from mt_pipe.test.external.datasets import test as test_dataset
+from mt_pipe.test.external.learners import test as test_learner
 from mt_pipe.util import Logger
 import yaml
 from omegaconf import OmegaConf

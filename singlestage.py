@@ -1,11 +1,8 @@
 import os
 import sys
 
-mt_pipe_path = [p for p in sys.path if p.endswith("mt_pipe")]
-if len(mt_pipe_path) > 0:
-    mt_pipe_path = mt_pipe_path[0]
-    main_dir = os.path.join(mt_pipe_path, os.pardir)
-    sys.path.append(main_dir)
+root_dir = os.path.join(os.path.dirname(__file__), os.pardir)
+sys.path.append(root_dir)
 
 import argparse
 import ast
