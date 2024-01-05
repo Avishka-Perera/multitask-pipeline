@@ -1,5 +1,6 @@
 import torch
 from omegaconf.dictconfig import DictConfig
+from omegaconf import OmegaConf
 from typing import Dict, Sequence
 from ..util import load_class
 
@@ -12,6 +13,8 @@ class ConcatLoss:
         weight: float = -1,
     ) -> None:
         self.loss_fns = {}
+        conf = OmegaConf.create(conf)
+        self.conf = conf
         first_val = tuple(conf.values())[0]
         if type(first_val) == DictConfig:
             self.device = device
@@ -20,7 +23,7 @@ class ConcatLoss:
         for name, value in conf.items():
             if type(value) == DictConfig:
                 loss_class = load_class(value.target)
-                loss_params = dict(value.params)
+                loss_params = dict(value.params) if "params" in value else {}
                 loss_fn = loss_class(device=device, **loss_params)
             else:
                 loss_fn = value
@@ -34,7 +37,8 @@ class ConcatLoss:
         total_loss = torch.tensor(0.0).cuda(self.device)
         glob_loss_pack = {}
         for nm, loss_fn in self.loss_fns.items():
-            loss_pack = loss_fn(out=out, batch=batch)
+            fn_inp = out[self.conf[nm].out] if "out" in self.conf[nm] else out
+            loss_pack = loss_fn(out=fn_inp, batch=batch)
             glob_loss_pack[nm] = loss_pack
             loss = loss_pack["tot"]
             if not torch.isnan(loss):
