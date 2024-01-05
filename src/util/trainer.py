@@ -422,10 +422,10 @@ class Trainer:
         self.logger.info(f"Model: using devices: {devices}")
         if "params" in self.conf.model.keys():
             model: BaseLearner = model_class(
-                **dict(self.conf.model.params), devices=devices, logger=self.logger
+                **dict(self.conf.model.params), devices=devices
             )
         else:
-            model: BaseLearner = model_class(devices=devices, logger=self.logger)
+            model: BaseLearner = model_class(devices=devices)
 
         if self.is_ddp:
             # self.model = DDP(model, find_unused_parameters=True)

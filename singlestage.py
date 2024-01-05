@@ -3,7 +3,8 @@ import sys
 
 root_dir = os.path.join(os.path.dirname(__file__), os.pardir)
 sys.path.append(root_dir)
-sys.path.remove(os.path.dirname(__file__))
+if os.path.dirname(__file__) in sys.path:
+    sys.path.remove(os.path.dirname(__file__))
 
 import argparse
 import ast
