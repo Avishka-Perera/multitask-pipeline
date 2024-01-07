@@ -8,8 +8,10 @@ device=""
 mock_batch_count=""
 mock_epoch_count=""
 run_name=""
+replica_size=2
+analysis_level=1
 
-args=$(getopt -o c:t:o:d: --long confs:,trans:,output-path:,device:,mock-batch-count:,mock-epoch-count:,run-name: -n "$0" -- "$@")
+args=$(getopt -o c:t:o:d:r:a: --long confs:,trans:,output-path:,device:,replica-size:,analysis-level:,mock-batch-count:,mock-epoch-count:,run-name: -n "$0" -- "$@")
 
 # Flag variables to track which list is being processed
 in_confs=false
@@ -31,6 +33,16 @@ while [[ $# -gt 0 ]]; do
     -d|--device)
         shift
         device="$1"
+        shift
+        ;;
+    -r|--replica-size)
+        shift
+        replica_size="$1"
+        shift
+        ;;
+    -a|--analysis-level)
+        shift
+        analysis_level="$1"
         shift
         ;;
     --mock-batch-count)
@@ -93,10 +105,14 @@ for ((i = 0; i < length; i++)); do
     if [ -n "$conf" ]; then
         options+=("-c" "$conf")
     fi
-    # options+=("-a" 1)
-    # options+=("-r" 1)
     if [ -n "$device" ]; then
         options+=("-d" "$device")
+    fi
+    if [ -n "$replica_size" ]; then
+        options+=("-r" "$replica_size")
+    fi
+    if [ -n "$analysis_level" ]; then
+        options+=("-a" "$analysis_level")
     fi
     if [ -n "$stage_run_name" ]; then
         options+=("--run-name" "$stage_run_name")
