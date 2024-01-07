@@ -126,3 +126,28 @@ def split_class_dataset(
 
     with open(os.path.join(ant_dir, "classes.json"), "w") as handler:
         json.dump({i: c for (i, c) in enumerate(classes)}, handler, indent=4)
+
+
+class ParallelDataLoader:
+    def __init__(self, dataloaders) -> None:
+        self.dataloaders = dataloaders
+        self.iterators = [iter(dl) for dl in self.dataloaders]
+
+    def __len__(self) -> int:
+        return min([len(dl) for dl in self.dataloaders])
+
+    def __iter__(self):
+        self.iterators = [iter(dl) for dl in self.dataloaders]
+        return self
+
+    def __next__(self):
+        try:
+            # TODO
+            batch = {}
+            for loader_iter in self.iterators:
+                loader_batch = next(loader_iter)
+                batch.update(loader_batch)
+            return batch
+        except StopIteration:
+            self.iterators = [iter(loader) for loader in self.dataloaders]
+            raise StopIteration
