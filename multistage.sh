@@ -19,46 +19,51 @@ in_trans=false
 while [[ $# -gt 0 ]]; do
   case $1 in
     -c|--confs)
-      in_confs=true
-      in_trans=false
-      shift
-      ;;
+        in_confs=true
+        in_trans=false
+        shift
+        ;;
     -t|--trans)
-      in_confs=false
-      in_trans=true
-      shift
-      ;;
+        in_confs=false
+        in_trans=true
+        shift
+        ;;
     -d|--device)
-      shift
-      device="$1"
-      shift
-      ;;
+        shift
+        device="$1"
+        shift
+        ;;
     --mock-batch-count)
-      mock_batch_count="$2"
-      shift 2
-      ;;
+        mock_batch_count="$2"
+        shift 2
+        ;;
     --mock-epoch-count)
-      mock_epoch_count="$2"
-      shift 2
-      ;;
+        mock_epoch_count="$2"
+        shift 2
+        ;;
     --run-name)
-      run_name="$2"
-      shift 2
-      ;;
+        run_name="$2"
+        shift 2
+        ;;
     -o|--output-path)
-      output_path="$2"
-      shift 2
-      ;;
+        output_path="$2"
+        shift 2
+        ;;
     *)
-      if $in_confs; then
-        confs+=("$1")
-      elif $in_trans; then
-        trans+=("$1")
-      fi
-      shift
-      ;;
-  esac
+        if $in_confs; then
+            confs+=("$1")
+        elif $in_trans; then
+            trans+=("$1")
+        fi
+        shift
+        ;;
+    esac
 done
+
+if [ -z "$run_name" ]; then
+    echo "run_name is required"
+    exit 1
+fi
 
 # Determine the length of the longer list
 length=${#confs[@]}
@@ -71,6 +76,7 @@ tran=""
 stage_run_name=""
 ckpt_path=""
 for ((i = 0; i < length; i++)); do
+
     if [ $i -lt ${#confs[@]} ]; then
         conf=${confs[i]}
     fi
@@ -87,8 +93,8 @@ for ((i = 0; i < length; i++)); do
     if [ -n "$conf" ]; then
         options+=("-c" "$conf")
     fi
-    options+=("-a" 1)
-    options+=("-r" 1)
+    # options+=("-a" 1)
+    # options+=("-r" 1)
     if [ -n "$device" ]; then
         options+=("-d" "$device")
     fi
@@ -108,10 +114,16 @@ for ((i = 0; i < length; i++)); do
         options+=("--mock-epoch-count" "$mock_epoch_count")
     fi
     python_command="python mt_pipe/singlestage.py ${options[@]}"
+    
+    echo ""
+    echo "+----------------------------------"
+    echo "| Invoking command \`$python_command\`"
+    echo "+----------------------------------"
+    echo ""
     eval "$python_command"
 
     if [ $? -ne 0 ]; then
-      echo "Error: Stage$i failed "
-      exit 1
+        echo "Error: Stage$i failed "
+        exit 1
     fi
 done
