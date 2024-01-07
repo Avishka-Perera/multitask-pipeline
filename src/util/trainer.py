@@ -22,6 +22,7 @@ from ..evaluators import BaseEvaluator
 from ..learners import BaseLearner
 from ..datasets import BaseDataset
 from ..constants import analysis_levels
+from ..util.data import ParallelDataLoader
 from torch.utils.data import Dataset
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LRScheduler
@@ -164,48 +165,54 @@ def validate_conf(
                 )
 
         # validate the data configurations
-        data_required_keys = ["target", "params"]
-        data_possible_keys = data_required_keys
-        validate_keys(
-            conf.data.keys(), data_required_keys, data_possible_keys, "conf.data"
-        )
-        data_param_required_keys = ["root"]
-        data_param_possible_keys = data_param_required_keys + [
-            "conf",
-            "resize_wh",
-            "dataset",
-        ]
-        validate_keys(
-            conf.data.params.keys(),
-            data_param_required_keys,
-            data_param_possible_keys,
-            "conf.data.params",
-        )
-        if "conf" in conf.data.params:
-            # i.e., a ConcatSet
+        def validate_single_datapath(data_conf, nm):
+            data_required_keys = ["target", "params"]
+            data_possible_keys = data_required_keys
+            validate_keys(data_conf.keys(), data_required_keys, data_possible_keys, nm)
             data_param_required_keys = ["root"]
             data_param_possible_keys = data_param_required_keys + [
                 "conf",
+                "resize_wh",  # TODO: move this to the conf or params itself
+                "dataset",
             ]
             validate_keys(
-                conf.data.params.keys(),
+                data_conf.params.keys(),
                 data_param_required_keys,
                 data_param_possible_keys,
-                "conf.data.params",
+                f"{nm}.params",
             )
-            ds_conf_required_keys = ["target"]
-            ds_conf_possible_keys = ds_conf_required_keys + [
-                "split_mix",
-                "params",
-                "reps",
-            ]
-            for i, ds_conf in enumerate(conf.data.params.conf):
+            if "conf" in data_conf.params:
+                # i.e., a ConcatSet
+                data_param_required_keys = ["root"]
+                data_param_possible_keys = data_param_required_keys + [
+                    "conf",
+                ]
                 validate_keys(
-                    ds_conf.keys(),
-                    ds_conf_required_keys,
-                    ds_conf_possible_keys,
-                    f"conf.data.params.conf[{i}]",
+                    data_conf.params.keys(),
+                    data_param_required_keys,
+                    data_param_possible_keys,
+                    f"{nm}.params",
                 )
+                ds_conf_required_keys = ["target"]
+                ds_conf_possible_keys = ds_conf_required_keys + [
+                    "split_mix",
+                    "params",
+                    "reps",
+                ]
+                for i, ds_conf in enumerate(data_conf.params.conf):
+                    validate_keys(
+                        ds_conf.keys(),
+                        ds_conf_required_keys,
+                        ds_conf_possible_keys,
+                        f"{nm}.params.conf[{i}]",
+                    )
+
+        if "target" in conf.data:
+            validate_single_datapath(conf.data, "conf.data")
+        else:
+            # i.e., multi datapaths
+            for nm, sub_conf in conf.data.items():
+                validate_single_datapath(sub_conf, f"conf.data.{nm}")
 
         # start validate loss device_maps
         def validate_loss_devices(loss_conf, name):
@@ -224,9 +231,7 @@ def validate_conf(
 
         # validate datasets
         if validate_datasets:
-            train_ds, val_ds, test_ds = load_datasets(
-                conf.data, multi_task, do_val, do_test
-            )
+            train_ds, val_ds, test_ds = load_datasets(conf.data, do_val, do_test)
             assert len(train_ds) > 0, "The train_ds has length 0"
             assert not do_val or len(val_ds) > 0, "The val_ds has length 0"
             assert not do_test or len(test_ds) > 0, "The test_ds has length 0"
@@ -234,114 +239,18 @@ def validate_conf(
         if logger is not None:
             logger.info(f"Single task configuration for '{conf.name}' valid")
 
-    def validate_multi_task_conf() -> None:
-        tasks = conf.tasks
-
-        # validate the model configuration
-        if "local_device_maps" in conf.model.keys():
-            for task in tasks:
-                if task in conf.model.local_device_maps.keys() and (
-                    len(conf.model.local_device_maps[task]) > len(devices)
-                ):
-                    raise AttributeError(
-                        f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of 'conf.model.local_device_maps'({len(conf.model.local_device_maps[task])})"
-                    )
-
-        # validate the data configurations
-        data_required_keys = tasks
-        data_possible_keys = data_required_keys
-        validate_keys(
-            conf.data.keys(), data_required_keys, data_possible_keys, "conf.data"
-        )
-        for task in tasks:
-            data_required_keys = ["target", "params"]
-            data_possible_keys = data_required_keys
-            validate_keys(
-                conf.data[task].keys(),
-                data_required_keys,
-                data_possible_keys,
-                f"conf.data.{task}",
-            )
-            data_param_required_keys = ["root"]
-            data_param_possible_keys = data_param_required_keys + [
-                "targets",
-                "reps",
-                "val_in_train",
-            ]
-            validate_keys(
-                conf.data[task].params.keys(),
-                data_param_required_keys,
-                data_param_possible_keys,
-                f"conf.data.{task}.params",
-            )
-
-        # validate loss device_maps
-        if "local_device_maps" in conf.loss.keys():
-            for task in tasks:
-                if type(conf.loss) == omegaconf.dictconfig.DictConfig:
-                    if task in conf.loss.local_device_maps and (
-                        len(conf.loss.local_device_maps[task]) > len(devices)
-                    ):
-                        raise AttributeError(
-                            f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of 'conf.loss.local_device_maps'({len(conf.loss.local_device_maps[task])})"
-                        )
-                else:
-                    raise NotImplementedError()
-
-        # validate datasets
-        if validate_datasets:
-            train_ds, val_ds, test_ds = load_datasets(
-                conf.data, multi_task, do_val, do_test
-            )
-            for task in train_ds.keys():
-                tds = train_ds[task]
-                vds = val_ds[task]
-                tsds = test_ds[task]
-                assert len(tds) > 0, f"The train_ds of task '{task}' has length 0"
-                assert (
-                    not do_val or len(vds) > 0
-                ), f"The val_ds of task '{task}' has length 0"
-                assert (
-                    not do_test or len(tsds) > 0
-                ), f"The test_ds of task '{task}' has length 0"
-
-        if logger is not None:
-            logger.info(f"Multi task configuration for '{conf.name}' valid")
-
-    multi_task = "tasks" in conf.keys()
-
     do_val = "val" in conf.keys()
     do_test = "test" in conf.keys()
 
+    # TODO: bring the content of these functions out
     validate_common()
-    if multi_task:
-        validate_multi_task_conf()
-    else:
-        validate_single_task_conf()
+    validate_single_task_conf()
 
 
 def load_datasets(
-    conf: omegaconf.OmegaConf, multi_task, do_val, do_test
-) -> Dict[str, Dataset] | Dataset:
-    if multi_task:
-        tasks = list(conf.keys())
-        for task in tasks:
-            assert "target" in conf[task].keys()
-        train_ds = {}
-        val_ds = {}
-        test_ds = {}
-        for task in tasks:
-            dataset_class = load_class(conf[task].target)
-            train_ds[task] = dataset_class(**dict(conf[task].params), split="train")
-            if do_val:
-                val_ds[task] = dataset_class(**dict(conf[task].params), split="val")
-            else:
-                val_ds[task] = None
-            if do_test:
-                test_ds[task] = dataset_class(**dict(conf[task].params), split="test")
-            else:
-                test_ds[task] = None
-    else:
+    conf: omegaconf.OmegaConf, do_val, do_test
+) -> Sequence[Dict[str, Dataset]] | Sequence[Dataset]:
+    def load_single_dataset(conf):
         dataset_class = load_class(conf.target)
         train_ds = dataset_class(**dict(conf.params), split="train")
         if do_val:
@@ -353,7 +262,19 @@ def load_datasets(
         else:
             test_ds = None
 
-    return train_ds, val_ds, test_ds
+        return train_ds, val_ds, test_ds
+
+    if "target" in conf:
+        return load_single_dataset(conf)
+    else:
+        train_dss, val_dss, test_dss = {}, {}, {}
+        for nm, sub_conf in conf.items():
+            train_ds, val_ds, test_ds = load_single_dataset(sub_conf)
+            train_dss[nm] = train_ds
+            val_dss[nm] = val_ds
+            test_dss[nm] = test_ds
+
+        return train_dss, val_dss, test_dss
 
 
 class Trainer:
@@ -363,7 +284,7 @@ class Trainer:
         self,
     ) -> Sequence[BaseDataset] | BaseDataset:
         train_ds, val_ds, test_ds = load_datasets(
-            self.conf.data, self.multi_task, self.do_val, self.do_test
+            self.conf.data, self.do_val, self.do_test
         )
 
         return train_ds, val_ds, test_ds
@@ -373,28 +294,11 @@ class Trainer:
 
         # map the devices
         if "local_device_maps" in self.conf.model.keys():
-            if self.multi_task:
-                devices = {
-                    task: (
-                        [
-                            self.devices[local_id]
-                            for local_id in self.conf.model.local_device_maps[task]
-                        ]
-                        if task in self.conf.model.local_device_maps
-                        else self.devices
-                    )
-                    for task in self.tasks
-                }
-            else:
-                devices = [
-                    self.devices[local_id]
-                    for local_id in self.conf.model.local_device_maps
-                ]
+            devices = [
+                self.devices[local_id] for local_id in self.conf.model.local_device_maps
+            ]
         else:
-            if self.multi_task:
-                devices = {task: self.devices for task in self.tasks}
-            else:
-                devices = self.devices
+            devices = self.devices
 
         # function to correct the devices
         def get_correct_device_lst(devices, device_cnt):
@@ -411,13 +315,7 @@ class Trainer:
             return devices
 
         # correct the devices
-        if self.multi_task:
-            for task, task_devices in devices.items():
-                devices[task] = get_correct_device_lst(
-                    task_devices, model_class.device_count[task]
-                )
-        else:
-            devices = get_correct_device_lst(devices, model_class.device_count)
+        devices = get_correct_device_lst(devices, model_class.device_count)
 
         self.logger.info(f"Model: using devices: {devices}")
         if "params" in self.conf.model.keys():
@@ -451,28 +349,11 @@ class Trainer:
 
             # map devices
             if "local_device_maps" in loss_conf.keys():
-                if self.multi_task:
-                    device = {
-                        task: (
-                            [
-                                self.devices[local_id]
-                                for local_id in loss_conf.local_device_maps[task]
-                            ]
-                            if task in loss_conf.local_device_maps
-                            else self.devices
-                        )[-1]
-                        for task in self.tasks
-                    }
-                else:
-                    device = [
-                        self.devices[local_id]
-                        for local_id in loss_conf.local_device_maps
-                    ][-1]
+                device = [
+                    self.devices[local_id] for local_id in loss_conf.local_device_maps
+                ][-1]
             else:
-                if self.multi_task:
-                    device = {task: self.devices[-1] for task in self.tasks}
-                else:
-                    device = self.devices[-1]
+                device = self.devices[-1]
 
             self.logger.info(f"Loss: using device: {device}")
 
@@ -485,45 +366,50 @@ class Trainer:
 
             return loss
 
-        if "target" in self.conf.loss:
-            loss_fn: BaseLoss = load_single_loss(self.conf.loss)
-            self.train_loss_fn = loss_fn
-            self.val_loss_fn = loss_fn
-        else:
-            if type(self.conf.loss) == omegaconf.listconfig.ListConfig:
-                loss_fns = {}
-                for loss_conf in self.conf.loss:
-                    loss_fns[loss_conf.target] = load_single_loss(loss_conf)
-                loss_fn: BaseLoss = ConcatLoss(
-                    device=-1, weight=1, logger=self.logger, conf=loss_fns
-                )
-                self.train_loss_fn = loss_fn
-                self.val_loss_fn = loss_fn
-            else:
-                loss_names = list(self.conf.loss.keys())
-                train_loss_fns = {}
-                val_loss_fns = {}
-                train_loss_names = (
-                    self.conf.train.loss if "loss" in self.conf.train else loss_names
-                )
-                if self.do_val:
-                    val_loss_names = (
-                        self.conf.val.loss if "loss" in self.conf.val else loss_names
-                    )
-                else:
-                    val_loss_names = {}
-                for nm, loss_conf in self.conf.loss.items():
-                    loss_fn = load_single_loss(loss_conf)
-                    if nm in train_loss_names:
-                        train_loss_fns[nm] = loss_fn
-                    if nm in val_loss_names:
-                        val_loss_fns[nm] = loss_fn
-                self.train_loss_fn = ConcatLoss(
-                    device=-1, weight=1, logger=self.logger, conf=train_loss_fns
-                )
-                self.val_loss_fn = ConcatLoss(
-                    device=-1, weight=1, logger=self.logger, conf=val_loss_fns
-                )
+        loss_fn: BaseLoss = load_single_loss(self.conf.loss)
+        self.train_loss_fn = loss_fn
+        self.val_loss_fn = loss_fn
+
+        # TODO: resolve this. Automatic concatloss or defined concat loss?
+        # if "target" in self.conf.loss:
+        #     loss_fn: BaseLoss = load_single_loss(self.conf.loss)
+        #     self.train_loss_fn = loss_fn
+        #     self.val_loss_fn = loss_fn
+        # else:
+        #     if type(self.conf.loss) == omegaconf.listconfig.ListConfig:
+        #         loss_fns = {}
+        #         for loss_conf in self.conf.loss:
+        #             loss_fns[loss_conf.target] = load_single_loss(loss_conf)
+        #         loss_fn: BaseLoss = ConcatLoss(
+        #             device=-1, weight=1, logger=self.logger, conf=loss_fns
+        #         )
+        #         self.train_loss_fn = loss_fn
+        #         self.val_loss_fn = loss_fn
+        #     else:
+        #         loss_names = list(self.conf.loss.keys())
+        #         train_loss_fns = {}
+        #         val_loss_fns = {}
+        #         train_loss_names = (
+        #             self.conf.train.loss if "loss" in self.conf.train else loss_names
+        #         )
+        #         if self.do_val:
+        #             val_loss_names = (
+        #                 self.conf.val.loss if "loss" in self.conf.val else loss_names
+        #             )
+        #         else:
+        #             val_loss_names = {}
+        #         for nm, loss_conf in self.conf.loss.items():
+        #             loss_fn = load_single_loss(loss_conf)
+        #             if nm in train_loss_names:
+        #                 train_loss_fns[nm] = loss_fn
+        #             if nm in val_loss_names:
+        #                 val_loss_fns[nm] = loss_fn
+        #         self.train_loss_fn = ConcatLoss(
+        #             device=-1, weight=1, logger=self.logger, conf=train_loss_fns
+        #         )
+        #         self.val_loss_fn = ConcatLoss(
+        #             device=-1, weight=1, logger=self.logger, conf=val_loss_fns
+        #         )
 
     def _load_training_objects(self):
         if "optimizer" in self.conf:
@@ -547,104 +433,6 @@ class Trainer:
 
     def _validate_conf(self):
         validate_conf(self.conf, self.devices, self.logger)
-
-    # TODO: get rid of this
-    def _fuse_multi_task(self):
-        # Whenever flow and depth are found together, the new key will be depth_flow
-        if "depth" in self.conf.tasks and "flow" in self.conf.tasks:
-            self.logger.info("Found 'depth' and 'flow' tasks. Fusing into 'depth_flow'")
-
-            # validate
-            assert (
-                self.conf.data.depth.params.root == self.conf.data.flow.params.root
-            ), "Depth and Flow must have the same data source"
-            assert (
-                self.conf.data.depth.target == self.conf.data.flow.target
-            ), "Depth and Flow must have the same dataset"
-            assert (
-                self.conf.train.loader_params.depth.batch_size
-                == self.conf.train.loader_params.flow.batch_size
-            ), "Batch sizes of flow and depth must be equal"
-            assert (
-                self.conf.val.loader_params.depth.batch_size
-                == self.conf.val.loader_params.flow.batch_size
-            ), "Batch sizes of flow and depth must be equal"
-            assert (
-                "local_device_maps" not in self.conf.model
-                or "flow" not in self.conf.model.local_device_maps
-                or (
-                    self.conf.model.local_device_maps.flow
-                    == self.conf.model.local_device_maps.depth
-                )
-            ), "local_device_maps (model) of flow and depth must be equal"
-            assert (
-                "local_device_maps" not in self.conf.loss
-                or "flow" not in self.conf.loss.local_device_maps
-                or self.conf.loss.local_device_maps.flow
-                == self.conf.loss.local_device_maps.depth
-            ), "local_device_maps (loss) of flow and depth must be equal"
-
-            # update the tasks
-            self.conf.tasks.append("depth_flow")
-            self.conf.tasks.remove("depth"), self.conf.tasks.remove("flow")
-
-            # update the data.<task>
-            self.conf.data["depth_flow"] = self.conf.data["flow"]
-            self.conf.data.pop("depth"), self.conf.data.pop("flow")
-
-            # update the batch_sizes
-            self.conf.train.loader_params[
-                "depth_flow"
-            ] = self.conf.train.loader_params.depth
-            self.conf.train.loader_params.pop(
-                "depth"
-            ), self.conf.train.loader_params.pop("flow")
-            self.conf.val.loader_params[
-                "depth_flow"
-            ] = self.conf.val.loader_params.depth
-            self.conf.val.loader_params.pop("depth"), self.conf.val.loader_params.pop(
-                "flow"
-            )
-
-            # update the loss
-            self.conf.loss.params.tasks.remove("depth")
-            self.conf.loss.params.tasks.remove("flow")
-            self.conf.loss.params.tasks.append("depth_flow")
-
-            # update local_device_maps (loss)
-            if ("local_device_maps" in self.conf.loss) and (
-                "flow" in self.conf.loss.local_device_maps.keys()
-            ):
-                self.conf.loss.local_device_maps[
-                    "depth_flow"
-                ] = self.conf.loss.local_device_maps.flow
-                new_device_map = omegaconf.OmegaConf.to_container(
-                    self.conf.loss.local_device_maps
-                )
-                new_device_map.pop("flow")
-                new_device_map.pop("depth")
-                new_device_map = omegaconf.OmegaConf.create(new_device_map)
-                self.conf.loss.local_device_maps = new_device_map
-
-            # update local_device_maps (model)
-            if ("local_device_maps" in self.conf.model) and (
-                "flow" in self.conf.model.local_device_maps
-            ):
-                self.conf.model.local_device_maps[
-                    "depth_flow"
-                ] = self.conf.model.local_device_maps.flow
-                new_device_map = omegaconf.OmegaConf.to_container(
-                    self.conf.model.local_device_maps
-                )
-                new_device_map.pop("flow")
-                new_device_map.pop("depth")
-                new_device_map = omegaconf.OmegaConf.create(new_device_map)
-                self.conf.model.local_device_maps = new_device_map
-
-            # update the learner
-            self.conf.model.params.tasks.remove("depth")
-            self.conf.model.params.tasks.remove("flow")
-            self.conf.model.params.tasks.append("depth_flow")
 
     def _load_evaluator(self) -> None:
         self.evaluators: Dict[str, BaseEvaluator] = {}
@@ -684,12 +472,8 @@ class Trainer:
         self.rank = rank
         self.world_size = world_size
         self.do_out = self.rank == 0 or self.rank is None
-        self.multi_task = "tasks" in self.conf.keys()
         self.logger = Logger(0, rank) if logger is None else logger
         self._validate_conf()
-        if self.multi_task:
-            self._fuse_multi_task()
-            self.tasks = self.conf.tasks
         self.do_val = "val" in self.conf.keys()
         self.do_test = "test" in self.conf.keys()
         if not self.do_val:
@@ -734,12 +518,13 @@ class Trainer:
         card_nm_plt = f"EPOCH: {epoch}"
         loss_pack = self._unpack_losspack_recursive(loss_pack)
         for nm, loss in loss_pack.items():
-            loss = loss.cpu().item()
-            cat_plt = f"Loss (per epoch):{stage}:{nm}"
-            cat_acc = f"Loss Analysis (job wide):{stage}"
-            card_nm_acc = nm
-            self.logger.plot(cat_plt, card_nm_plt, loss, batch_id)
-            self.logger.accumulate(cat_acc, card_nm_acc, loss)
+            if loss is not None:
+                loss = loss.cpu().item()
+                cat_plt = f"Loss (per epoch):{stage}:{nm}"
+                cat_acc = f"Loss Analysis (job wide):{stage}"
+                card_nm_acc = nm
+                self.logger.plot(cat_plt, card_nm_plt, loss, batch_id)
+                self.logger.accumulate(cat_acc, card_nm_acc, loss)
 
     def val_step(
         self,
@@ -930,55 +715,25 @@ class Trainer:
             val_mock_batch_count = train_mock_batch_count
             test_mock_batch_count = train_mock_batch_count
 
-        if self.multi_task:
-            assert (not self.do_val) or isinstance(
-                self.val_ds, Dict
-            ), "val_ds should also be a Dict"
-            assert all(
-                [
-                    "batch_size" in self.conf.train.loader_params[task].keys()
-                    for task in self.conf.tasks
-                ]
-            ), "conf.train.loader_params.<task> must contain the 'batch_size'"
-            assert all(
-                [
-                    "batch_size" in self.conf.val.loader_params[task].keys()
-                    for task in self.conf.tasks
-                ]
-            ), "conf.val.loader_params.<task> must contain the 'batch_size'"
-            assert (not self.do_val) or (
-                len(self.train_ds) == len(self.val_ds)
-            ), "Number of validation datasets should be equal to the train datasets"
-
         def get_mock_ds(split_conf, self_ds, mock_batch_count):
-            return (
-                {
-                    k: Subset(
-                        ds,
-                        range(
-                            min(
-                                split_conf.loader_params[k].batch_size
-                                * mock_batch_count
-                                * self.world_size,
-                                len(ds),
-                            )
-                        ),
-                    )
-                    for (k, ds) in self_ds.items()
-                }
-                if self.multi_task
-                else Subset(
-                    self_ds,
+            def get(ds, batch_size):
+                return Subset(
+                    ds,
                     range(
                         min(
-                            split_conf.loader_params.batch_size
-                            * mock_batch_count
-                            * self.world_size,
-                            len(self_ds),
+                            batch_size * mock_batch_count * self.world_size,
+                            len(ds),
                         )
                     ),
                 )
-            )
+
+            if type(self_ds) == dict:
+                return {
+                    nm: get(ds, split_conf.loader_params[nm].batch_size)
+                    for nm, ds in self_ds.items()
+                }
+            else:
+                return get(self_ds, split_conf.loader_params.batch_size)
 
         if train_mock_batch_count == -1:
             train_ds = self.train_ds
@@ -1000,117 +755,84 @@ class Trainer:
         return train_ds, val_ds, test_ds
 
     def _get_dataloaders(self, train_ds, val_ds, test_ds):
-        if self.multi_task:
-            # TODO: loader params for multi task
-            def get_loader(dss, split_conf):
-                samplers = (
-                    {
-                        k: DistributedSampler(ds, self.world_size, self.rank)
-                        for k, ds in dss.items()
-                    }
-                    if self.is_ddp
-                    else {k: None for k, ds in dss.items()}
-                )
-                loaders = {
-                    k: (
-                        DataLoader(
-                            ds,
-                            **dict(split_conf.loader_params[k]),
-                            sampler=samplers[k],
-                        )
-                        if self.is_ddp
-                        else DataLoader(ds, **dict(split_conf.loader_params[k]))
-                    )
-                    for k, ds in dss.items()
-                }
-                return loaders, samplers
-
-            train_dl, train_sampler = get_loader(train_ds, self.conf.train)
-            if self.do_val:
-                val_dl, val_sampler = get_loader(val_ds, self.conf.val)
-            else:
-                val_dl = val_sampler = val_ds  # {task1: None, task2: None, ...}
-            if self.do_test:
-                test_dl, test_sampler = get_loader(test_ds, self.conf.test)
-            else:
-                test_dl = test_sampler = test_ds  # {task1: None, task2: None, ...}
-        else:
-
-            def process_loader_params_single_task(loader_params: OmegaConf, ds) -> Dict:
-                new_loader_params = OmegaConf.to_container(loader_params)
-                if "collate_fn" in loader_params:
-                    collate_fn_conf = loader_params.pop("collate_fn")
-                    func = load_class(collate_fn_conf.target)
-                    if "params" in collate_fn_conf:
-                        new_func_params = {}
-                        for k, v in collate_fn_conf.params.items():
-                            if hasattr(v, "__iter__") and "target" in v:
-                                # i.e., its a class object
-                                cls = load_class(v.target)
-                                params = dict(v.params) if "params" in v else {}
-                                new_func_params[k] = cls(**params)
-                            else:
-                                new_func_params[k] = v
-                        new_loader_params["collate_fn"] = partial(
-                            func, **new_func_params
-                        )
-                    else:
-                        new_loader_params["collate_fn"] = func
-
-                if self.is_ddp:
-                    if "sampler" in loader_params:
-                        sampler_class = load_class(loader_params.sampler.target)
-                    else:
-                        sampler_class = DistributedSampler
-                    new_loader_params["sampler"] = sampler_class(
-                        ds, self.world_size, self.rank
-                    )
+        def process_loader_params(loader_params: OmegaConf, ds) -> Dict:
+            new_loader_params = OmegaConf.to_container(loader_params)
+            if "collate_fn" in loader_params:
+                collate_fn_conf = loader_params.pop("collate_fn")
+                func = load_class(collate_fn_conf.target)
+                if "params" in collate_fn_conf:
+                    new_func_params = {}
+                    for k, v in collate_fn_conf.params.items():
+                        if hasattr(v, "__iter__") and "target" in v:
+                            # i.e., its a class object
+                            cls = load_class(v.target)
+                            params = dict(v.params) if "params" in v else {}
+                            new_func_params[k] = cls(**params)
+                        else:
+                            new_func_params[k] = v
+                    new_loader_params["collate_fn"] = partial(func, **new_func_params)
                 else:
-                    if "sampler" in loader_params:
-                        raise NotImplementedError(
-                            "Custom sampler usage is not implemented for non-DDP setups"
-                        )
+                    new_loader_params["collate_fn"] = func
 
-                return new_loader_params
+            if self.is_ddp:
+                if "sampler" in loader_params:
+                    sampler_class = load_class(loader_params.sampler.target)
+                else:
+                    sampler_class = DistributedSampler
+                new_loader_params["sampler"] = sampler_class(
+                    ds, self.world_size, self.rank
+                )
+            else:
+                if "sampler" in loader_params:
+                    raise NotImplementedError(
+                        "Custom sampler usage is not implemented for non-DDP setups"
+                    )
 
-            def get_loader(ds, split_conf):
-                params = process_loader_params_single_task(split_conf.loader_params, ds)
+            return new_loader_params
+
+        def get_loader(dss, split_conf):
+            def get_single_loader(ds, loader_params):
+                params = process_loader_params(loader_params, ds)
                 sampler = params["sampler"] if "sampler" in params else None
                 loader = DataLoader(ds, **dict(params))
                 return loader, sampler
 
-            train_dl, train_sampler = get_loader(train_ds, self.conf.train)
-            if self.do_val:
-                val_dl, val_sampler = get_loader(val_ds, self.conf.val)
+            if type(dss) == dict:
+                samplers, dls = [], []
+                for nm, ds in dss.items():
+                    loader, sampler = get_single_loader(
+                        ds, split_conf.loader_params[nm]
+                    )
+                    dls.append(loader)
+                    samplers.append(sampler)
+                loader = ParallelDataLoader(dls)
+                return loader, samplers
             else:
-                val_dl = val_sampler = val_ds  # None
-            if self.do_test:
-                test_dl, test_sampler = get_loader(test_ds, self.conf.test)
-            else:
-                test_dl = test_sampler = test_ds  # None
+                loader, sampler = get_single_loader(dss, split_conf.loader_params)
+                return loader, [sampler]
+
+        train_dl, train_samplers = get_loader(train_ds, self.conf.train)
+        if self.do_val:
+            val_dl, val_samplers = get_loader(val_ds, self.conf.val)
+        else:
+            val_dl, val_samplers = None, [None]
+        if self.do_test:
+            test_dl, test_samplers = get_loader(test_ds, self.conf.test)
+        else:
+            test_dl, test_samplers = None, [None]
 
         # validate the dataloaders
-        if self.multi_task:
-            for k, dl in train_dl.items():
-                if len(dl) == 0:
-                    raise AttributeError(f"'{k}', 'train' dataloader has length 0")
-            if self.do_val:
-                for k, dl in val_dl.items():
-                    if len(dl) == 0:
-                        raise AttributeError(f"'{k}', 'val' dataloader has length 0")
-            if self.do_test:
-                for k, dl in test_dl.items():
-                    if len(dl) == 0:
-                        raise AttributeError(f"'{k}', 'test' dataloader has length 0")
-        else:
-            if len(train_dl) == 0:
-                raise AttributeError("'train' dataloader has length 0")
-            if val_dl is not None and (len(val_dl) == 0):
-                raise AttributeError("'val' dataloader has length 0")
-            if test_dl is not None and (len(test_dl) == 0):
-                raise AttributeError("'test' dataloader has length 0")
+        if len(train_dl) == 0:
+            raise AttributeError("'train' dataloader has length 0")
+        if val_dl is not None and (len(val_dl) == 0):
+            raise AttributeError("'val' dataloader has length 0")
+        if test_dl is not None and (len(test_dl) == 0):
+            raise AttributeError("'test' dataloader has length 0")
 
-        return ((train_dl, val_dl, test_dl), (train_sampler, val_sampler, test_sampler))
+        return (
+            (train_dl, val_dl, test_dl),
+            (*train_samplers, *val_samplers, *test_samplers),
+        )
 
     def _train_loop(self, train_batch_count, show_pbar, epoch, train_dl, dl_keys):
         # train loop
@@ -1138,13 +860,8 @@ class Trainer:
                     )
                 train_losses.append(train_loss)
 
-            if self.multi_task:
-                for batch_id, batch in enumerate(zip(*train_dl)):
-                    batch = {k: v for (k, v) in zip(dl_keys, batch)}
-                    process_batch(batch, batch_id)
-            else:
-                for batch_id, batch in enumerate(train_dl):
-                    process_batch(batch, batch_id)
+            for batch_id, batch in enumerate(train_dl):
+                process_batch(batch, batch_id)
 
         train_loss = sum(train_losses) / len(train_losses)
 
@@ -1176,13 +893,8 @@ class Trainer:
                         )
                     return val_loss
 
-                if self.multi_task:
-                    for batch_id, batch in enumerate(zip(*val_dl)):
-                        batch = {k: v for (k, v) in zip(dl_keys, batch)}
-                        val_loss = process_batch(batch, batch_id, val_loss)
-                else:
-                    for batch_id, batch in enumerate(val_dl):
-                        val_loss = process_batch(batch, batch_id, val_loss)
+                for batch_id, batch in enumerate(val_dl):
+                    val_loss = process_batch(batch, batch_id, val_loss)
                 val_loss /= val_batch_count
 
         if self.is_ddp:
@@ -1216,26 +928,14 @@ class Trainer:
 
     def _get_fit_info(self, mock_epoch_count, train_dl, val_dl):
         tollerance = self.conf.train.tollerance
-        train_batch_count = (
-            min([len(dl) for dl in train_dl.values()])
-            if self.multi_task
-            else len(train_dl)
-        )
+        train_batch_count = len(train_dl)
+
         if self.do_val:
-            val_batch_count = (
-                min([len(dl) for dl in val_dl.values()])
-                if self.multi_task
-                else len(val_dl)
-            )
+            val_batch_count = len(val_dl)
         else:
             val_batch_count = None
 
-        if self.multi_task:
-            dl_keys = train_dl.keys()
-            train_dl = train_dl.values()
-            val_dl = val_dl.values()
-        else:
-            dl_keys = None
+        dl_keys = None  # TODO: get rid of this
         epochs = mock_epoch_count if mock_epoch_count > 0 else self.conf.epochs
 
         return (
@@ -1269,7 +969,6 @@ class Trainer:
         train_ds, val_ds, test_ds = self._get_adjusted_datasets(mock_batch_count)
         loaders, samplers = self._get_dataloaders(train_ds, val_ds, test_ds)
         train_dl, val_dl, test_dl = loaders
-        train_sampler, val_sampler, test_sampler = samplers
 
         best_ckpt_path = os.path.join(output_path, "ckpts", "best.ckpt")
         final_ckpt_path = os.path.join(output_path, "ckpts", "final.ckpt")
@@ -1286,14 +985,17 @@ class Trainer:
         ) = self._get_fit_info(mock_epoch_count, train_dl, val_dl)
 
         def set_samplers_epoch(epoch):
-            for smpl_l1 in (train_sampler, val_sampler, test_sampler):
-                if type(smpl_l1) == dict:
-                    for smpl_l2 in smpl_l1.values():
-                        if smpl_l2 is not None:
-                            smpl_l2.set_epoch(epoch)
-                else:
-                    if smpl_l1 is not None:
-                        smpl_l1.set_epoch(epoch)
+            # for smpl_l1 in samplers:
+            #     if type(smpl_l1) == dict:
+            #         for smpl_l2 in smpl_l1.values():
+            #             if smpl_l2 is not None:
+            #                 smpl_l2.set_epoch(epoch)
+            #     else:
+            #         if smpl_l1 is not None:
+            #             smpl_l1.set_epoch(epoch)
+            for smpl in samplers:
+                if smpl is not None:
+                    smpl.set_epoch(epoch)
 
         for epoch in range(start_epoch, epochs):
             self.logger.info(

@@ -130,6 +130,7 @@ def split_class_dataset(
 
 class ParallelDataLoader:
     def __init__(self, dataloaders) -> None:
+        assert len(dataloaders) > 1, "Length of dataloaders should be greater than to 1"
         self.dataloaders = dataloaders
         self.iterators = [iter(dl) for dl in self.dataloaders]
 
