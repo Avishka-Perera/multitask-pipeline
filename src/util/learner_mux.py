@@ -25,6 +25,17 @@ class LearnerMux(nn.Module):
             ch_cls = load_class(conf.target)
             ch_obj: BaseLearner = ch_cls(backbone=self.encoder, devices=devices)
             setattr(self, ch_nm, ch_obj)
+
+            # fill missing params with default params (full)
+            if "out_map" not in conf:
+                conf["out_map"] = {"path": "."}
+            if "in_map" not in conf:
+                conf["in_map"] = {k: "full" for k in conf["out_map"].keys()}
+            else:
+                for path_name in conf["out_map"].keys():
+                    if path_name not in conf["in_map"]:
+                        conf["in_map"][path_name] = "full"
+
         self.chldrn = chldrn
 
     def forward(self, batch):

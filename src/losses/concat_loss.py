@@ -37,7 +37,7 @@ class ConcatLoss:
         total_loss = torch.tensor(0.0).cuda(self.device)
         glob_loss_pack = {}
         for nm, loss_fn in self.loss_fns.items():
-            fn_inp = out[self.conf[nm].out] if "out" in self.conf[nm] else out
+            fn_inp = out[self.conf[nm].branch] if "branch" in self.conf[nm] else out
             loss_pack = loss_fn(out=fn_inp, batch=batch)
             glob_loss_pack[nm] = loss_pack
             loss = loss_pack["tot"]
