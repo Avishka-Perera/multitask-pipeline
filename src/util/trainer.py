@@ -39,141 +39,151 @@ def validate_conf(
     logger: Logger = None,
     validate_datasets=True,
 ) -> None:
-    def validate_common():
-        # validate root configuration
-        root_required_keys = [
-            "name",
-            "data",
-            "model",
-            "loss",
-            "optimizer",
-            "train",
-            "epochs",
-        ]
-        root_possible_keys = root_required_keys + [
-            "tasks",
-            "lr_scheduler",
-            "val",
-            "test",
-            "checkpoints",
-        ]
-        validate_keys(conf.keys(), root_required_keys, root_possible_keys, "conf")
+    do_val = "val" in conf.keys()
+    do_test = "test" in conf.keys()
 
-        # validate the model configuration
-        model_required_keys = ["target"]
-        model_possible_keys = model_required_keys + ["params", "local_device_maps"]
+    # validate root configuration
+    root_required_keys = [
+        "name",
+        "data",
+        "learner",
+        "loss",
+        "optimizer",
+        "train",
+        "epochs",
+    ]
+    root_possible_keys = root_required_keys + [
+        "tasks",
+        "lr_scheduler",
+        "val",
+        "test",
+        "checkpoints",
+    ]
+    validate_keys(conf.keys(), root_required_keys, root_possible_keys, "conf")
+
+    # validate the model configuration
+    learner_required_keys = ["target"]
+    learner_possible_keys = learner_required_keys + ["params", "local_device_maps"]
+    validate_keys(
+        conf.learner.keys(),
+        learner_required_keys,
+        learner_possible_keys,
+        "conf.learner",
+    )
+
+    # validate the loss configurations start
+    loss_required_keys = ["target"]
+    loss_possible_keys = loss_required_keys + ["params", "local_device_maps"]
+
+    def validate_loss_conf(
+        loss_conf: omegaconf.dictconfig.DictConfig, loss_conf_name: str
+    ) -> None:
         validate_keys(
-            conf.model.keys(),
-            model_required_keys,
-            model_possible_keys,
-            "conf.model",
+            loss_conf.keys(),
+            loss_required_keys,
+            loss_possible_keys,
+            loss_conf_name,
         )
-
-        # validate the loss configurations start
-        loss_required_keys = ["target"]
-        loss_possible_keys = loss_required_keys + ["params", "local_device_maps"]
-
-        def validate_loss_conf(
-            loss_conf: omegaconf.dictconfig.DictConfig, loss_conf_name: str
-        ) -> None:
-            validate_keys(
-                loss_conf.keys(),
-                loss_required_keys,
-                loss_possible_keys,
-                loss_conf_name,
-            )
-            if "local_device_maps" in loss_conf.keys():
-                if len(loss_conf.local_device_maps) > len(devices):
-                    raise AttributeError(
-                        f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{loss_conf_name}.local_device_maps'({len(loss_conf.local_device_maps)})"
-                    )
-
-        if "target" in (conf.loss):
-            validate_loss_conf(conf.loss, "conf.loss")
-        else:
-            if type(conf.loss) == omegaconf.listconfig.ListConfig:
-                availabe_losses = []
-                for i, loss_conf in enumerate(conf.loss):
-                    validate_loss_conf(loss_conf, f"conf.loss[{i}]")
-                    if loss_conf.target in availabe_losses:
-                        raise ValueError(
-                            f"Same error cannot be repeated multiple times"
-                        )
-                    availabe_losses.append(loss_conf.target)
-            else:
-                loss_names = list(conf.loss.keys())
-                if "loss" in conf.train:
-                    assert all(
-                        [nm in loss_names for nm in conf.train.loss]
-                    ), "'conf.train.loss' must only specify losses defined at 'conf.loss'"
-                if "val" in conf and "loss" in conf.val:
-                    assert all(
-                        [nm in loss_names for nm in conf.val.loss]
-                    ), "'conf.val.loss' must only specify losses defined at 'conf.loss'"
-                for nm, loss_conf in conf.loss.items():
-                    validate_loss_conf(loss_conf, f"conf.loss.{nm}")
-        # validate the loss configurations end
-
-        # validate the optimizer configurations
-        optimizer_required_keys = ["target"]
-        optimizer_possible_keys = optimizer_required_keys + ["params"]
-        validate_keys(
-            conf.optimizer.keys(),
-            optimizer_required_keys,
-            optimizer_possible_keys,
-            "conf.optimizer",
-        )
-
-        # validate the lr_scheduler configurations
-        if "lr_scheduler" in conf.keys():
-            lr_scheduler_required_keys = ["target"]
-            lr_scheduler_possible_keys = lr_scheduler_required_keys + ["params"]
-            validate_keys(
-                conf.lr_scheduler.keys(),
-                lr_scheduler_required_keys,
-                lr_scheduler_possible_keys,
-                "conf.lr_scheduler",
-            )
-
-        # validate the train configurations
-        train_required_keys = ["loader_params"]
-        train_possible_keys = train_required_keys + ["tollerance", "loss"]
-        validate_keys(
-            conf.train.keys(),
-            train_required_keys,
-            train_possible_keys,
-            "conf.train",
-        )
-
-        # validate the val configurations
-        if "val" in conf.keys():
-            val_required_keys = ["loader_params"]
-            val_possible_keys = val_required_keys + ["loss"]
-            validate_keys(
-                conf.val.keys(),
-                val_required_keys,
-                val_possible_keys,
-                "conf.val",
-            )
-
-    def validate_single_task_conf() -> None:
-        # validate the model configuration
-        if "local_device_maps" in conf.model.keys():
-            if len(conf.model.local_device_maps) > len(devices):
+        if "local_device_maps" in loss_conf.keys():
+            if len(loss_conf.local_device_maps) > len(devices):
                 raise AttributeError(
-                    f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of 'conf.model.local_device_maps'({len(conf.model.local_device_maps)})"
+                    f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{loss_conf_name}.local_device_maps'({len(loss_conf.local_device_maps)})"
                 )
 
-        # validate the data configurations
-        def validate_single_datapath(data_conf, nm):
-            data_required_keys = ["target", "params"]
-            data_possible_keys = data_required_keys
-            validate_keys(data_conf.keys(), data_required_keys, data_possible_keys, nm)
+    if "target" in (conf.loss):
+        validate_loss_conf(conf.loss, "conf.loss")
+    else:
+        if type(conf.loss) == omegaconf.listconfig.ListConfig:
+            availabe_losses = []
+            for i, loss_conf in enumerate(conf.loss):
+                validate_loss_conf(loss_conf, f"conf.loss[{i}]")
+                if loss_conf.target in availabe_losses:
+                    raise ValueError(f"Same error cannot be repeated multiple times")
+                availabe_losses.append(loss_conf.target)
+        else:
+            loss_names = list(conf.loss.keys())
+            if "loss" in conf.train:
+                assert all(
+                    [nm in loss_names for nm in conf.train.loss]
+                ), "'conf.train.loss' must only specify losses defined at 'conf.loss'"
+            if "val" in conf and "loss" in conf.val:
+                assert all(
+                    [nm in loss_names for nm in conf.val.loss]
+                ), "'conf.val.loss' must only specify losses defined at 'conf.loss'"
+            for nm, loss_conf in conf.loss.items():
+                validate_loss_conf(loss_conf, f"conf.loss.{nm}")
+    # validate the loss configurations end
+
+    # validate the optimizer configurations
+    optimizer_required_keys = ["target"]
+    optimizer_possible_keys = optimizer_required_keys + ["params"]
+    validate_keys(
+        conf.optimizer.keys(),
+        optimizer_required_keys,
+        optimizer_possible_keys,
+        "conf.optimizer",
+    )
+
+    # validate the lr_scheduler configurations
+    if "lr_scheduler" in conf.keys():
+        lr_scheduler_required_keys = ["target"]
+        lr_scheduler_possible_keys = lr_scheduler_required_keys + ["params"]
+        validate_keys(
+            conf.lr_scheduler.keys(),
+            lr_scheduler_required_keys,
+            lr_scheduler_possible_keys,
+            "conf.lr_scheduler",
+        )
+
+    # validate the train configurations
+    train_required_keys = ["loader_params"]
+    train_possible_keys = train_required_keys + ["tollerance", "loss"]
+    validate_keys(
+        conf.train.keys(),
+        train_required_keys,
+        train_possible_keys,
+        "conf.train",
+    )
+
+    # validate the val configurations
+    if "val" in conf.keys():
+        val_required_keys = ["loader_params"]
+        val_possible_keys = val_required_keys + ["loss"]
+        validate_keys(
+            conf.val.keys(),
+            val_required_keys,
+            val_possible_keys,
+            "conf.val",
+        )
+
+    # validate the model configuration
+    if "local_device_maps" in conf.learner.keys():
+        if len(conf.learner.local_device_maps) > len(devices):
+            raise AttributeError(
+                f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of 'conf.learner.local_device_maps'({len(conf.learner.local_device_maps)})"
+            )
+
+    # validate the data configurations
+    def validate_single_datapath(data_conf, nm):
+        data_required_keys = ["target", "params"]
+        data_possible_keys = data_required_keys
+        validate_keys(data_conf.keys(), data_required_keys, data_possible_keys, nm)
+        data_param_required_keys = ["root"]
+        data_param_possible_keys = data_param_required_keys + [
+            "conf",
+            "dataset",
+        ]
+        validate_keys(
+            data_conf.params.keys(),
+            data_param_required_keys,
+            data_param_possible_keys,
+            f"{nm}.params",
+        )
+        if "conf" in data_conf.params:
+            # i.e., a ConcatSet
             data_param_required_keys = ["root"]
             data_param_possible_keys = data_param_required_keys + [
                 "conf",
-                "resize_wh",  # TODO: move this to the conf or params itself
-                "dataset",
             ]
             validate_keys(
                 data_conf.params.keys(),
@@ -181,70 +191,51 @@ def validate_conf(
                 data_param_possible_keys,
                 f"{nm}.params",
             )
-            if "conf" in data_conf.params:
-                # i.e., a ConcatSet
-                data_param_required_keys = ["root"]
-                data_param_possible_keys = data_param_required_keys + [
-                    "conf",
-                ]
+            ds_conf_required_keys = ["target"]
+            ds_conf_possible_keys = ds_conf_required_keys + [
+                "split_mix",
+                "params",
+                "reps",
+            ]
+            for i, ds_conf in enumerate(data_conf.params.conf):
                 validate_keys(
-                    data_conf.params.keys(),
-                    data_param_required_keys,
-                    data_param_possible_keys,
-                    f"{nm}.params",
+                    ds_conf.keys(),
+                    ds_conf_required_keys,
+                    ds_conf_possible_keys,
+                    f"{nm}.params.conf[{i}]",
                 )
-                ds_conf_required_keys = ["target"]
-                ds_conf_possible_keys = ds_conf_required_keys + [
-                    "split_mix",
-                    "params",
-                    "reps",
-                ]
-                for i, ds_conf in enumerate(data_conf.params.conf):
-                    validate_keys(
-                        ds_conf.keys(),
-                        ds_conf_required_keys,
-                        ds_conf_possible_keys,
-                        f"{nm}.params.conf[{i}]",
-                    )
 
-        if "target" in conf.data:
-            validate_single_datapath(conf.data, "conf.data")
-        else:
-            # i.e., multi datapaths
-            for nm, sub_conf in conf.data.items():
-                validate_single_datapath(sub_conf, f"conf.data.{nm}")
+    if "target" in conf.data:
+        validate_single_datapath(conf.data, "conf.data")
+    else:
+        # i.e., multi datapaths
+        for nm, sub_conf in conf.data.items():
+            validate_single_datapath(sub_conf, f"conf.data.{nm}")
 
-        # start validate loss device_maps
-        def validate_loss_devices(loss_conf, name):
-            if "local_device_maps" in loss_conf.keys():
-                if len(loss_conf.local_device_maps) > len(devices):
-                    raise AttributeError(
-                        f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{name}.local_device_maps'({len(loss_conf.local_device_maps)})"
-                    )
+    # start validate loss device_maps
+    def validate_loss_devices(loss_conf, name):
+        if "local_device_maps" in loss_conf.keys():
+            if len(loss_conf.local_device_maps) > len(devices):
+                raise AttributeError(
+                    f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{name}.local_device_maps'({len(loss_conf.local_device_maps)})"
+                )
 
-        if type(conf.loss) == omegaconf.dictconfig.DictConfig:
-            validate_loss_devices(conf.loss, "conf.loss")
-        else:
-            for i, loss_conf in enumerate(conf.loss):
-                validate_loss_devices(loss_conf, f"conf.loss[{i}]")
-        # end validate loss device_maps
+    if type(conf.loss) == omegaconf.dictconfig.DictConfig:
+        validate_loss_devices(conf.loss, "conf.loss")
+    else:
+        for i, loss_conf in enumerate(conf.loss):
+            validate_loss_devices(loss_conf, f"conf.loss[{i}]")
+    # end validate loss device_maps
 
-        # validate datasets
-        if validate_datasets:
-            train_ds, val_ds, test_ds = load_datasets(conf.data, do_val, do_test)
-            assert len(train_ds) > 0, "The train_ds has length 0"
-            assert not do_val or len(val_ds) > 0, "The val_ds has length 0"
-            assert not do_test or len(test_ds) > 0, "The test_ds has length 0"
+    # validate datasets
+    if validate_datasets:
+        train_ds, val_ds, test_ds = load_datasets(conf.data, do_val, do_test)
+        assert len(train_ds) > 0, "The train_ds has length 0"
+        assert not do_val or len(val_ds) > 0, "The val_ds has length 0"
+        assert not do_test or len(test_ds) > 0, "The test_ds has length 0"
 
-        if logger is not None:
-            logger.info(f"Single task configuration for '{conf.name}' valid")
-
-    do_val = "val" in conf.keys()
-    do_test = "test" in conf.keys()
-
-    # TODO: bring the content of these functions out
-    validate_common()
-    validate_single_task_conf()
+    if logger is not None:
+        logger.info(f"Single task configuration for '{conf.name}' valid")
 
 
 def load_datasets(
@@ -289,13 +280,14 @@ class Trainer:
 
         return train_ds, val_ds, test_ds
 
-    def _load_model(self):
-        model_class = load_class(self.conf.model.target)
+    def _load_learner(self):
+        model_class = load_class(self.conf.learner.target)
 
         # map the devices
-        if "local_device_maps" in self.conf.model.keys():
+        if "local_device_maps" in self.conf.learner.keys():
             devices = [
-                self.devices[local_id] for local_id in self.conf.model.local_device_maps
+                self.devices[local_id]
+                for local_id in self.conf.learner.local_device_maps
             ]
         else:
             devices = self.devices
@@ -318,9 +310,9 @@ class Trainer:
         devices = get_correct_device_lst(devices, model_class.device_count)
 
         self.logger.info(f"Model: using devices: {devices}")
-        if "params" in self.conf.model.keys():
+        if "params" in self.conf.learner.keys():
             model: BaseLearner = model_class(
-                **dict(self.conf.model.params), devices=devices
+                **dict(self.conf.learner.params), devices=devices
             )
         else:
             model: BaseLearner = model_class(devices=devices)
@@ -369,47 +361,6 @@ class Trainer:
         loss_fn: BaseLoss = load_single_loss(self.conf.loss)
         self.train_loss_fn = loss_fn
         self.val_loss_fn = loss_fn
-
-        # TODO: resolve this. Automatic concatloss or defined concat loss?
-        # if "target" in self.conf.loss:
-        #     loss_fn: BaseLoss = load_single_loss(self.conf.loss)
-        #     self.train_loss_fn = loss_fn
-        #     self.val_loss_fn = loss_fn
-        # else:
-        #     if type(self.conf.loss) == omegaconf.listconfig.ListConfig:
-        #         loss_fns = {}
-        #         for loss_conf in self.conf.loss:
-        #             loss_fns[loss_conf.target] = load_single_loss(loss_conf)
-        #         loss_fn: BaseLoss = ConcatLoss(
-        #             device=-1, weight=1, logger=self.logger, conf=loss_fns
-        #         )
-        #         self.train_loss_fn = loss_fn
-        #         self.val_loss_fn = loss_fn
-        #     else:
-        #         loss_names = list(self.conf.loss.keys())
-        #         train_loss_fns = {}
-        #         val_loss_fns = {}
-        #         train_loss_names = (
-        #             self.conf.train.loss if "loss" in self.conf.train else loss_names
-        #         )
-        #         if self.do_val:
-        #             val_loss_names = (
-        #                 self.conf.val.loss if "loss" in self.conf.val else loss_names
-        #             )
-        #         else:
-        #             val_loss_names = {}
-        #         for nm, loss_conf in self.conf.loss.items():
-        #             loss_fn = load_single_loss(loss_conf)
-        #             if nm in train_loss_names:
-        #                 train_loss_fns[nm] = loss_fn
-        #             if nm in val_loss_names:
-        #                 val_loss_fns[nm] = loss_fn
-        #         self.train_loss_fn = ConcatLoss(
-        #             device=-1, weight=1, logger=self.logger, conf=train_loss_fns
-        #         )
-        #         self.val_loss_fn = ConcatLoss(
-        #             device=-1, weight=1, logger=self.logger, conf=val_loss_fns
-        #         )
 
     def _load_training_objects(self):
         if "optimizer" in self.conf:
@@ -481,7 +432,7 @@ class Trainer:
                 "No validation configuration detected. Validation loops will be skipped"
             )
         self.train_ds, self.val_ds, self.test_ds = self._load_datasets()
-        self._load_model()
+        self._load_learner()
         if weights_conf["ckpt_path"] is not None:
             self._load_model_weights(
                 weights_conf["ckpt_path"], weights_conf["ckpt_map_conf_path"]
@@ -834,7 +785,7 @@ class Trainer:
             (*train_samplers, *val_samplers, *test_samplers),
         )
 
-    def _train_loop(self, train_batch_count, show_pbar, epoch, train_dl, dl_keys):
+    def _train_loop(self, train_batch_count, show_pbar, epoch, train_dl):
         # train loop
         self.model.train()
         train_losses = []
@@ -867,7 +818,7 @@ class Trainer:
 
         return train_loss
 
-    def _val_loop(self, val_batch_count, show_pbar, epoch, val_dl, dl_keys):
+    def _val_loop(self, val_batch_count, show_pbar, epoch, val_dl):
         self.model.eval()
         with torch.no_grad():
             val_loss = 0
@@ -935,14 +886,12 @@ class Trainer:
         else:
             val_batch_count = None
 
-        dl_keys = None  # TODO: get rid of this
         epochs = mock_epoch_count if mock_epoch_count > 0 else self.conf.epochs
 
         return (
             tollerance,
             train_batch_count,
             val_batch_count,
-            dl_keys,
             train_dl,
             val_dl,
             epochs,
@@ -978,21 +927,12 @@ class Trainer:
             tollerance,
             train_batch_count,
             val_batch_count,
-            dl_keys,
             train_dl,
             val_dl,
             epochs,
         ) = self._get_fit_info(mock_epoch_count, train_dl, val_dl)
 
         def set_samplers_epoch(epoch):
-            # for smpl_l1 in samplers:
-            #     if type(smpl_l1) == dict:
-            #         for smpl_l2 in smpl_l1.values():
-            #             if smpl_l2 is not None:
-            #                 smpl_l2.set_epoch(epoch)
-            #     else:
-            #         if smpl_l1 is not None:
-            #             smpl_l1.set_epoch(epoch)
             for smpl in samplers:
                 if smpl is not None:
                     smpl.set_epoch(epoch)
@@ -1003,15 +943,11 @@ class Trainer:
             )
             set_samplers_epoch(epoch)
 
-            train_loss = self._train_loop(
-                train_batch_count, show_pbar, epoch, train_dl, dl_keys
-            )
+            train_loss = self._train_loop(train_batch_count, show_pbar, epoch, train_dl)
             torch.cuda.empty_cache()
 
             if self.do_val:
-                val_loss = self._val_loop(
-                    val_batch_count, show_pbar, epoch, val_dl, dl_keys
-                )
+                val_loss = self._val_loop(val_batch_count, show_pbar, epoch, val_dl)
                 torch.cuda.empty_cache()
             else:
                 val_loss = None

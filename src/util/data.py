@@ -143,11 +143,7 @@ class ParallelDataLoader:
 
     def __next__(self):
         try:
-            # TODO
-            batch = {}
-            for loader_iter in self.iterators:
-                loader_batch = next(loader_iter)
-                batch.update(loader_batch)
+            batch = {k: v for iter in self.iterators for k, v in next(iter).items()}
             return batch
         except StopIteration:
             self.iterators = [iter(loader) for loader in self.dataloaders]
