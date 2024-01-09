@@ -6,14 +6,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict
 from ._base import BaseEvaluator
-from ..util import Logger, flatten_leads
+from ..util import flatten_leads
 from torch import distributed as dist
 
 
+# TODO: handle the DDP gatherings within the trainer. And get rid of the rank and world size in the __init__()
 class ClassificationEvaluator(BaseEvaluator):
     def __init__(
         self,
-        logger: Logger,
         out_path: str = None,
         rank: int = None,
         world_size: int = None,
@@ -31,7 +31,6 @@ class ClassificationEvaluator(BaseEvaluator):
             self.save_to_disk = False
             self.conf_mat_path = None
             self.report_path = None
-        self.logger = logger
         self.rank = rank
         self.world_size = world_size
         self.is_ddp = rank is not None

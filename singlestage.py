@@ -51,7 +51,7 @@ def parse_args():
         "-o",
         "--output-path",
         type=str,
-        help="Output directory",
+        help="Where outputs and logs are saved",
         default="out",
     )
     parser.add_argument(

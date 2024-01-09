@@ -28,7 +28,7 @@ class LearnerMux(nn.Module):
 
             # fill missing params with default params (full)
             if "out_map" not in conf:
-                conf["out_map"] = {"path": "."}
+                conf["out_map"] = {"path": "spread"}
             if "in_map" not in conf:
                 conf["in_map"] = {k: "full" for k in conf["out_map"].keys()}
             else:
@@ -51,8 +51,9 @@ class LearnerMux(nn.Module):
                     for src, dst in in_map.items():
                         ch_ln_inp[dst] = batch[src]
                 ch_ln_out = ch_ln(ch_ln_inp)
-                if out_nm == ".":
-                    return ch_ln_out
-                out[out_nm] = ch_ln_out
+                if out_nm == "spread":
+                    out.update(ch_ln_out)
+                else:
+                    out[out_nm] = ch_ln_out
 
         return out

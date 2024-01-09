@@ -6,14 +6,18 @@ import os
 from PIL import Image
 import torch
 import numpy as np
-from typing import Tuple
 from tqdm import tqdm
 import re
 import yaml
 import importlib
 import omegaconf
+from omegaconf.listconfig import ListConfig
+from collections import OrderedDict
 import random
 import boto3
+import logging
+
+logger = logging.getLogger()
 
 
 def is_lists_equal(lst1, lst2):
@@ -171,13 +175,15 @@ def has_excess_vals(target, values) -> bool:
     return any([tar not in values for tar in target])
 
 
-def validate_keys(target, required_vals, possible_vals, name) -> None:
+def validate_keys(target, required_vals, possible_vals=None, name=None) -> None:
+    assert name is not None
     if not has_all_vals(target, required_vals):
         raise AttributeError(f"The keys {required_vals} are required for '{name}'")
-    if has_excess_vals(target, possible_vals):
-        raise AttributeError(
-            f"Unexpected key found for '{name}'. Possible keys are {possible_vals}"
-        )
+    if possible_vals is not None:
+        if has_excess_vals(target, possible_vals):
+            raise AttributeError(
+                f"Unexpected key found for '{name}'. Possible keys are {possible_vals}"
+            )
 
 
 def fix_list_len(lst, exp_len):
@@ -241,15 +247,16 @@ def download_s3_directory(s3_uri, local_path, show_pbar=False):
                 print(f"Downloaded: {object_key} to {local_file_path}")
 
 
-def load_states(model: Module, sd, model_map_info, logger=None):
-    # load model states
+def load_model_states(
+    model: Module, state_dict: OrderedDict, model_map_info: ListConfig
+) -> None:
     for i, layer_map_info in enumerate(model_map_info):
         source = layer_map_info.source
         target = layer_map_info.target
         module = get_nested_attribute(model, target)
         if source == ".":
             status = module.load_state_dict(
-                sd,
+                state_dict,
             )
             if logger is not None:
                 logger.info(f"{i}, {status}")
@@ -257,7 +264,7 @@ def load_states(model: Module, sd, model_map_info, logger=None):
             source = source.strip(".")
             new_sd = {
                 k.lstrip(source).strip("."): v
-                for (k, v) in sd.items()
+                for (k, v) in state_dict.items()
                 if k.startswith(source)
             }
             status = module.load_state_dict(new_sd)

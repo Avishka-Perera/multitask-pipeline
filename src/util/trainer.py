@@ -14,15 +14,16 @@ from .util import (
     validate_keys,
     fix_list_len,
     load_config,
-    load_states,
+    load_model_states,
 )
 from .reporting import history_to_csv, history_to_img
-from ..losses import ConcatLoss, BaseLoss
+from ..losses import BaseLoss
 from ..evaluators import BaseEvaluator
 from ..learners import BaseLearner
-from ..datasets import BaseDataset
+from ..datasets import BaseDataset, ConcatSet
 from ..constants import analysis_levels
 from ..util.data import ParallelDataLoader
+from ..util import is_lists_equal
 from torch.utils.data import Dataset
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LRScheduler
@@ -50,10 +51,8 @@ def validate_conf(
         "loss",
         "optimizer",
         "train",
-        "epochs",
     ]
     root_possible_keys = root_required_keys + [
-        "tasks",
         "lr_scheduler",
         "val",
         "test",
@@ -61,7 +60,59 @@ def validate_conf(
     ]
     validate_keys(conf.keys(), root_required_keys, root_possible_keys, "conf")
 
-    # validate the model configuration
+    # start validate the data configurations
+    def validate_single_datapath(data_conf, nm):
+        data_required_keys = ["target", "params"]
+        data_possible_keys = data_required_keys
+        validate_keys(data_conf.keys(), data_required_keys, data_possible_keys, nm)
+        data_param_required_keys = ["root"]
+        validate_keys(
+            data_conf.params.keys(),
+            data_param_required_keys,
+            name=f"{nm}.params",
+        )
+        if load_class(data_conf.target) == ConcatSet:
+            data_param_required_keys = ["root"]
+            data_param_possible_keys = data_param_required_keys + [
+                "conf",
+            ]
+            validate_keys(
+                data_conf.params.keys(),
+                data_param_required_keys,
+                data_param_possible_keys,
+                f"{nm}.params",
+            )
+            ds_conf_required_keys = ["target"]
+            ds_conf_possible_keys = ds_conf_required_keys + [
+                "split_mix",
+                "params",
+                "reps",
+            ]
+            for i, ds_conf in enumerate(data_conf.params.conf):
+                validate_keys(
+                    ds_conf.keys(),
+                    ds_conf_required_keys,
+                    ds_conf_possible_keys,
+                    f"{nm}.params.conf[{i}]",
+                )
+
+    if "target" in conf.data:
+        validate_single_datapath(conf.data, "conf.data")
+    else:
+        # i.e., multi datapaths
+        for nm, sub_conf in conf.data.items():
+            validate_single_datapath(sub_conf, f"conf.data.{nm}")
+
+    # validate datasets
+    if validate_datasets:
+        train_ds, val_ds, test_ds = load_datasets(conf.data, do_val, do_test)
+        assert len(train_ds) > 0, "The train_ds has length 0"
+        assert not do_val or len(val_ds) > 0, "The val_ds has length 0"
+        assert not do_test or len(test_ds) > 0, "The test_ds has length 0"
+
+    # end validate the data configurations
+
+    # validate the learner configuration
     learner_required_keys = ["target"]
     learner_possible_keys = learner_required_keys + ["params", "local_device_maps"]
     validate_keys(
@@ -70,8 +121,13 @@ def validate_conf(
         learner_possible_keys,
         "conf.learner",
     )
+    if "local_device_maps" in conf.learner.keys():
+        if len(conf.learner.local_device_maps) > len(devices):
+            raise AttributeError(
+                f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of 'conf.learner.local_device_maps'({len(conf.learner.local_device_maps)})"
+            )
 
-    # validate the loss configurations start
+    # start validate the loss configurations
     loss_required_keys = ["target"]
     loss_possible_keys = loss_required_keys + ["params", "local_device_maps"]
 
@@ -112,7 +168,22 @@ def validate_conf(
                 ), "'conf.val.loss' must only specify losses defined at 'conf.loss'"
             for nm, loss_conf in conf.loss.items():
                 validate_loss_conf(loss_conf, f"conf.loss.{nm}")
-    # validate the loss configurations end
+
+    ## start validate loss device_maps
+    def validate_loss_devices(loss_conf, name):
+        if "local_device_maps" in loss_conf.keys():
+            if len(loss_conf.local_device_maps) > len(devices):
+                raise AttributeError(
+                    f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{name}.local_device_maps'({len(loss_conf.local_device_maps)})"
+                )
+
+    if type(conf.loss) == omegaconf.dictconfig.DictConfig:
+        validate_loss_devices(conf.loss, "conf.loss")
+    else:
+        for i, loss_conf in enumerate(conf.loss):
+            validate_loss_devices(loss_conf, f"conf.loss[{i}]")
+    ## end validate loss device_maps
+    # end validate the loss configurations
 
     # validate the optimizer configurations
     optimizer_required_keys = ["target"]
@@ -135,17 +206,23 @@ def validate_conf(
             "conf.lr_scheduler",
         )
 
-    # validate the train configurations
-    train_required_keys = ["loader_params"]
-    train_possible_keys = train_required_keys + ["tollerance", "loss"]
+    # start validate the train configurations
+    train_required_keys = ["loader_params", "epochs"]
+    train_possible_keys = train_required_keys + ["tollerance"]
     validate_keys(
         conf.train.keys(),
         train_required_keys,
         train_possible_keys,
         "conf.train",
     )
+    # validate that the datapaths are the same as defined in the data definition
+    if "target" in conf.data:
+        assert is_lists_equal(
+            list(conf.data.keys()), list(conf.train.loader_params.keys())
+        ), "Keys in conf.train.loader_params must be the same as the keys in conf.data"
+    # end validate the train configurations
 
-    # validate the val configurations
+    # start validate the val configurations
     if "val" in conf.keys():
         val_required_keys = ["loader_params"]
         val_possible_keys = val_required_keys + ["loss"]
@@ -155,84 +232,14 @@ def validate_conf(
             val_possible_keys,
             "conf.val",
         )
-
-    # validate the model configuration
-    if "local_device_maps" in conf.learner.keys():
-        if len(conf.learner.local_device_maps) > len(devices):
-            raise AttributeError(
-                f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of 'conf.learner.local_device_maps'({len(conf.learner.local_device_maps)})"
-            )
-
-    # validate the data configurations
-    def validate_single_datapath(data_conf, nm):
-        data_required_keys = ["target", "params"]
-        data_possible_keys = data_required_keys
-        validate_keys(data_conf.keys(), data_required_keys, data_possible_keys, nm)
-        data_param_required_keys = ["root"]
-        data_param_possible_keys = data_param_required_keys + [
-            "conf",
-            "dataset",
-        ]
-        validate_keys(
-            data_conf.params.keys(),
-            data_param_required_keys,
-            data_param_possible_keys,
-            f"{nm}.params",
-        )
-        if "conf" in data_conf.params:
-            # i.e., a ConcatSet
-            data_param_required_keys = ["root"]
-            data_param_possible_keys = data_param_required_keys + [
-                "conf",
-            ]
-            validate_keys(
-                data_conf.params.keys(),
-                data_param_required_keys,
-                data_param_possible_keys,
-                f"{nm}.params",
-            )
-            ds_conf_required_keys = ["target"]
-            ds_conf_possible_keys = ds_conf_required_keys + [
-                "split_mix",
-                "params",
-                "reps",
-            ]
-            for i, ds_conf in enumerate(data_conf.params.conf):
-                validate_keys(
-                    ds_conf.keys(),
-                    ds_conf_required_keys,
-                    ds_conf_possible_keys,
-                    f"{nm}.params.conf[{i}]",
-                )
-
+    # validate that the datapaths are the same as defined in the data definition
     if "target" in conf.data:
-        validate_single_datapath(conf.data, "conf.data")
-    else:
-        # i.e., multi datapaths
-        for nm, sub_conf in conf.data.items():
-            validate_single_datapath(sub_conf, f"conf.data.{nm}")
+        assert is_lists_equal(
+            list(conf.data.keys()), list(conf.val.loader_params.keys())
+        ), "Keys in conf.val.loader_params must be the same as the keys in conf.data"
+    # end validate the val configurations
 
-    # start validate loss device_maps
-    def validate_loss_devices(loss_conf, name):
-        if "local_device_maps" in loss_conf.keys():
-            if len(loss_conf.local_device_maps) > len(devices):
-                raise AttributeError(
-                    f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{name}.local_device_maps'({len(loss_conf.local_device_maps)})"
-                )
-
-    if type(conf.loss) == omegaconf.dictconfig.DictConfig:
-        validate_loss_devices(conf.loss, "conf.loss")
-    else:
-        for i, loss_conf in enumerate(conf.loss):
-            validate_loss_devices(loss_conf, f"conf.loss[{i}]")
-    # end validate loss device_maps
-
-    # validate datasets
-    if validate_datasets:
-        train_ds, val_ds, test_ds = load_datasets(conf.data, do_val, do_test)
-        assert len(train_ds) > 0, "The train_ds has length 0"
-        assert not do_val or len(val_ds) > 0, "The val_ds has length 0"
-        assert not do_test or len(test_ds) > 0, "The test_ds has length 0"
+    # TODO: vaalidate the test configuration
 
     if logger is not None:
         logger.info(f"Single task configuration for '{conf.name}' valid")
@@ -281,7 +288,7 @@ class Trainer:
         return train_ds, val_ds, test_ds
 
     def _load_learner(self):
-        model_class = load_class(self.conf.learner.target)
+        learner_class = load_class(self.conf.learner.target)
 
         # map the devices
         if "local_device_maps" in self.conf.learner.keys():
@@ -307,33 +314,38 @@ class Trainer:
             return devices
 
         # correct the devices
-        devices = get_correct_device_lst(devices, model_class.device_count)
+        devices = get_correct_device_lst(devices, learner_class.device_count)
 
-        self.logger.info(f"Model: using devices: {devices}")
+        self.logger.info(f"Learner: using devices: {devices}")
         if "params" in self.conf.learner.keys():
-            model: BaseLearner = model_class(
+            learner: BaseLearner = learner_class(
                 **dict(self.conf.learner.params), devices=devices
             )
         else:
-            model: BaseLearner = model_class(devices=devices)
+            learner: BaseLearner = learner_class(devices=devices)
 
         if self.is_ddp:
             # self.model = DDP(model, find_unused_parameters=True)
-            self.model = DDP(model)
+            self.learner = DDP(learner)
         else:
-            self.model = model
+            self.learner = learner
 
-    def _load_model_weights(
-        self, ckpt_path: str, ckpt_map_conf_path: str = None
-    ) -> None:
-        model = self.model.module if self.is_ddp else self.model
-        sd = torch.load(ckpt_path)["model"]
-        if ckpt_map_conf_path is None:
-            model.load_state_dict(sd)
-        else:
+    def _load_states(self, ckpt_path: str, ckpt_map_conf_path: str = None) -> None:
+        ckpt = torch.load(ckpt_path)
+        if ckpt_map_conf_path is not None:
             with open(ckpt_map_conf_path) as handler:
-                model_map_info = OmegaConf.create(yaml.load(handler, yaml.FullLoader))
-            load_states(model, sd, model_map_info, self.logger)
+                ckpt_map_info = OmegaConf.create(yaml.load(handler, yaml.FullLoader))
+        else:
+            ckpt_map_info = None
+
+        # load learner
+        learner = self.learner.module if self.is_ddp else self.learner
+        sd = ckpt["learner"]
+        if ckpt_map_conf_path is None or "learner" not in ckpt_map_info:
+            learner.load_state_dict(sd)
+        else:
+            learner_map_info = ckpt_map_info.learner
+            load_model_states(learner, sd, learner_map_info)
 
     def _load_loss(self):
         def load_single_loss(loss_conf: omegaconf.dictconfig.DictConfig):
@@ -366,10 +378,10 @@ class Trainer:
         if "optimizer" in self.conf:
             optim_class = load_class(self.conf.optimizer.target)
             self.optimizer = optim_class(
-                self.model.parameters(), **dict(self.conf.optimizer.params)
+                self.learner.parameters(), **dict(self.conf.optimizer.params)
             )
         else:
-            self.optimizer = Adam(self.model.parameters())
+            self.optimizer = Adam(self.learner.parameters())
         self.logger.info(f"Using optimizer {self.optimizer.__class__.__name__}")
 
         if "lr_scheduler" in self.conf:
@@ -394,7 +406,6 @@ class Trainer:
                 self.evaluators[eval_nm] = eval_class(
                     rank=self.rank,
                     world_size=self.world_size,
-                    logger=self.logger,
                     **params,
                 )
 
@@ -434,7 +445,7 @@ class Trainer:
         self.train_ds, self.val_ds, self.test_ds = self._load_datasets()
         self._load_learner()
         if weights_conf["ckpt_path"] is not None:
-            self._load_model_weights(
+            self._load_states(
                 weights_conf["ckpt_path"], weights_conf["ckpt_map_conf_path"]
             )
         self._load_loss()
@@ -483,7 +494,7 @@ class Trainer:
         epoch: int,
         batch_id: int,
     ) -> torch.Tensor:
-        out = self.model(batch)
+        out = self.learner(batch)
         loss_pack = self.val_loss_fn(out, batch)
         tot_loss = loss_pack["tot"]
 
@@ -499,7 +510,7 @@ class Trainer:
         batch_id: int,
     ) -> float:
         self.optimizer.zero_grad()
-        out = self.model(batch)
+        out = self.learner(batch)
         loss_pack = self.train_loss_fn(out, batch)
         tot_loss = loss_pack["tot"]
         tot_loss.backward()
@@ -517,17 +528,17 @@ class Trainer:
     def _save_ckpt(self, epoch, output_path, status, history=None):
         # checkpoints
         ckpt_path = os.path.join(output_path, "ckpts", status + ".ckpt")
-        model_state = (
-            self.model.module.state_dict()
-            if type(self.model) == DDP
-            else self.model.state_dict()
+        learner_state = (
+            self.learner.module.state_dict()
+            if type(self.learner) == DDP
+            else self.learner.state_dict()
         )
         optim_state = self.optimizer.state_dict()
         lr_scheduler_state = (
             None if self.lr_scheduler is None else self.lr_scheduler.state_dict()
         )
         ckpts = {
-            "model": model_state,
+            "learner": learner_state,
             "optimizer": optim_state,
             "lr_scheduler": lr_scheduler_state,
             "epoch": epoch,
@@ -542,14 +553,14 @@ class Trainer:
     def _load_ckpt(self, path):
         self.logger.info(f"Loading checkpoints from {path}")
         ckpts = torch.load(path)
-        model_state = ckpts["model"]
+        learner_state = ckpts["learner"]
         optim_state = ckpts["optimizer"]
         lr_scheduler_state = ckpts["lr_scheduler"]
         epoch = ckpts["epoch"]
-        if type(self.model) == DDP:
-            self.model.module.load_state_dict(model_state)
+        if type(self.learner) == DDP:
+            self.learner.module.load_state_dict(learner_state)
         else:
-            self.model.load_state_dict(model_state)
+            self.learner.load_state_dict(learner_state)
         self.optimizer.load_state_dict(optim_state)
         if self.lr_scheduler is not None and lr_scheduler_state is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state)
@@ -647,7 +658,7 @@ class Trainer:
             best_epoch = -1
 
         if self.do_out:
-            model = self.model.module if self.is_ddp else self.model
+            model = self.learner.module if self.is_ddp else self.learner
             self.logger.init_plotter(output_path, model)
 
             if self.do_test:
@@ -787,7 +798,7 @@ class Trainer:
 
     def _train_loop(self, train_batch_count, show_pbar, epoch, train_dl):
         # train loop
-        self.model.train()
+        self.learner.train()
         train_losses = []
         with tqdm(
             total=train_batch_count,
@@ -819,7 +830,7 @@ class Trainer:
         return train_loss
 
     def _val_loop(self, val_batch_count, show_pbar, epoch, val_dl):
-        self.model.eval()
+        self.learner.eval()
         with torch.no_grad():
             val_loss = 0
             with tqdm(
@@ -859,7 +870,7 @@ class Trainer:
         return val_loss
 
     def _test_loop(self, show_pbar: bool, test_dl: DataLoader) -> None:
-        self.model.eval()
+        self.learner.eval()
         with torch.no_grad():
             with tqdm(
                 total=len(test_dl),
@@ -869,7 +880,7 @@ class Trainer:
                 if not show_pbar:
                     self.logger.info("Testing")
                 for batch in test_dl:
-                    out = self.model(batch)
+                    out = self.learner(batch)
                     for eval in self.evaluators.values():
                         eval.register(batch=batch, out=out)
                     pbar.update()
@@ -886,7 +897,7 @@ class Trainer:
         else:
             val_batch_count = None
 
-        epochs = mock_epoch_count if mock_epoch_count > 0 else self.conf.epochs
+        epochs = mock_epoch_count if mock_epoch_count > 0 else self.conf.train.epochs
 
         return (
             tollerance,
@@ -911,17 +922,9 @@ class Trainer:
             output_path, run_name, resume_dir, force_resume
         )
 
-        if start_epoch >= self.conf.epochs - 1:
-            self.logger.info(self.already_trained_msg)
-            return
-
         train_ds, val_ds, test_ds = self._get_adjusted_datasets(mock_batch_count)
         loaders, samplers = self._get_dataloaders(train_ds, val_ds, test_ds)
         train_dl, val_dl, test_dl = loaders
-
-        best_ckpt_path = os.path.join(output_path, "ckpts", "best.ckpt")
-        final_ckpt_path = os.path.join(output_path, "ckpts", "final.ckpt")
-        self.logger.info(f"Saving outputs to {output_path}")
 
         (
             tollerance,
@@ -931,6 +934,14 @@ class Trainer:
             val_dl,
             epochs,
         ) = self._get_fit_info(mock_epoch_count, train_dl, val_dl)
+
+        if start_epoch >= epochs:
+            self.logger.info(self.already_trained_msg)
+            return
+
+        best_ckpt_path = os.path.join(output_path, "ckpts", "best.ckpt")
+        final_ckpt_path = os.path.join(output_path, "ckpts", "final.ckpt")
+        self.logger.info(f"Saving outputs to {output_path}")
 
         def set_samplers_epoch(epoch):
             for smpl in samplers:
@@ -1006,9 +1017,9 @@ class Trainer:
             else:
                 sd = torch.load(final_ckpt_path)["model"]
             if self.is_ddp:
-                self.model.module.load_state_dict(sd)
+                self.learner.module.load_state_dict(sd)
             else:
-                self.model.load_state_dict(sd)
+                self.learner.load_state_dict(sd)
             self._test_loop(show_pbar=show_pbar, test_dl=test_dl)
 
         self.logger.info(f"Single-staged training successful!\n")
