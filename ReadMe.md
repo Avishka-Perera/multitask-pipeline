@@ -15,4 +15,3 @@ Software architecture of a typical pipeline consists of the above structure. 1. 
 ## Acknowledgements
 
 This work is still under development and used in some of our projects. Feel free to collaborate 😃.
-Checkpoints file to load states from

@@ -216,7 +216,7 @@ def validate_conf(
         "conf.train",
     )
     # validate that the datapaths are the same as defined in the data definition
-    if "target" in conf.data:
+    if "target" not in conf.data:
         assert is_lists_equal(
             list(conf.data.keys()), list(conf.train.loader_params.keys())
         ), "Keys in conf.train.loader_params must be the same as the keys in conf.data"
@@ -233,7 +233,7 @@ def validate_conf(
             "conf.val",
         )
     # validate that the datapaths are the same as defined in the data definition
-    if "target" in conf.data:
+    if "target" not in conf.data:
         assert is_lists_equal(
             list(conf.data.keys()), list(conf.val.loader_params.keys())
         ), "Keys in conf.val.loader_params must be the same as the keys in conf.data"
