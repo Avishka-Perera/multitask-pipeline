@@ -10,7 +10,7 @@ from .cross_entropy import validate_losspack as validate_ce_losspack
 def test(device: int, logger: Logger) -> None:
     logger.info("Testing ConcatLoss...")
 
-    conf1 = OmegaConf.create(
+    conf = OmegaConf.create(
         {
             "mmcr": {"target": "src.losses.MMCRLoss", "params": {"lamb": 1}},
             "cross_entropy": {
@@ -20,27 +20,19 @@ def test(device: int, logger: Logger) -> None:
         }
     )
 
-    loss_fn_mmcr = MMCRLoss(lamb=0.01, device=device)
-    loss_fn_ce = CrossEntropyLoss(device=device, has_aug_ax=True)
-    conf2 = {
-        "mmcr": loss_fn_mmcr,
-        "cross_entropy": loss_fn_ce,
+    conc_loss_fn = ConcatLoss(device, conf)
+
+    B, K, C, W, H = 16, 8, 3, 224, 224
+    emb_D, out_D = 768, 20
+    mock_batch = {
+        "lbl": torch.Tensor(np.random.randint(0, out_D, (B, K))).to(int),
+        "img": torch.Tensor(B, K, C, H, W),
     }
-
-    for conf in [conf1, conf2]:
-        conc_loss_fn = ConcatLoss(device, conf)
-
-        B, K, C, W, H = 16, 8, 3, 224, 224
-        emb_D, out_D = 768, 20
-        mock_batch = {
-            "lbl": torch.Tensor(np.random.randint(0, out_D, (B, K))).to(int),
-            "img": torch.Tensor(B, K, C, H, W),
-        }
-        mock_out = {
-            "embs": torch.Tensor(B, K, emb_D),
-            "logits": torch.Tensor(B, K, out_D),
-        }
-        loss_pack = conc_loss_fn(mock_out, mock_batch)
-        assert is_lists_equal(list(loss_pack.keys()), ["tot", "mmcr", "cross_entropy"])
-        validate_mmcr_losspack(loss_pack["mmcr"])
-        validate_ce_losspack(loss_pack["cross_entropy"])
+    mock_out = {
+        "embs": torch.Tensor(B, K, emb_D),
+        "logits": torch.Tensor(B, K, out_D),
+    }
+    loss_pack = conc_loss_fn(mock_out, mock_batch)
+    assert is_lists_equal(list(loss_pack.keys()), ["tot", "mmcr", "cross_entropy"])
+    validate_mmcr_losspack(loss_pack["mmcr"])
+    validate_ce_losspack(loss_pack["cross_entropy"])

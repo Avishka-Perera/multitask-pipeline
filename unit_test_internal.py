@@ -62,13 +62,6 @@ def parse_args():
         help="The directory where test outputs will be saved",
     )
     parser.add_argument(
-        "-c",
-        "--conf-dir",
-        type=str,
-        default="src/configs/20",
-        help="The directory containing trainer configurations",
-    )
-    parser.add_argument(
         "--dataset-test-cnt",
         type=int,
         default=5,

@@ -1,7 +1,7 @@
 from torch import nn
 from typing import Sequence, Dict
 from .util import load_class
-from mt_pipe.src.learners import BaseLearner
+from ..learners import BaseLearner
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 
