@@ -73,6 +73,8 @@ class Logger:
 
     def plot(self, category: str, card_name: str, val: float, glob_step: int) -> None:
         """Plots a scalar to the tensorboard"""
+        category = category.replace("/", "_")
+        card_name = card_name.replace("/", "_")
         card = f"{category}/{card_name}"
         self._plot_to_tb(card, val, glob_step)
 
@@ -85,20 +87,7 @@ class Logger:
 
     def accumulate(self, category: str, card_name: str, val: float) -> None:
         """Accumulates a value under a specific card. The accumulated values will be plotted by calling step()"""
+        category = category.replace("/", "_")
+        card_name = card_name.replace("/", "_")
         card = f"{category}/{card_name}"
         self._accumulate(card, val)
-
-    # def accumulate_train_loss(self, y) -> None:
-    #     self._accumulate("Loss/train", y)
-
-    # def accumulate_val_loss(self, y) -> None:
-    #     self._accumulate("Loss/validation", y)
-
-    # def accumulate_analysis(self, prefix, name, y) -> None:
-    #     if self.loss_analysis:
-    #         name = f"Analysis/{name}" if prefix is None else f"Analysis:{prefix}/{name}"
-    #         self._accumulate(name, y)
-
-    # def plot_epoch_loss(self, val, batch_id, epoch, is_train=True):
-    #     name = f"Train/EPOCH {epoch+1}" if is_train else f"Validation/EPOCH {epoch+1}"
-    #     self.plotter.add_scalar(name, val, batch_id)

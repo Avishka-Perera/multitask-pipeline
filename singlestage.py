@@ -96,7 +96,7 @@ def parse_args():
         "-a",
         "--analysis-level",
         type=int,
-        default=0,
+        default=1,
         help="The level of analysis to do. 0: no analysis; 1: break loss into parts; 2: break loss into parts and analyze gradients",
         choices=analysis_levels,
     )

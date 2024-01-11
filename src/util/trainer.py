@@ -417,7 +417,7 @@ class Trainer:
         rank: int = None,
         world_size: int = 1,
         logger: Logger = None,
-        analysis_level: Literal[*analysis_levels] = 0,
+        analysis_level: Literal[*analysis_levels] = 1,
     ) -> None:
         if type(conf) == str:
             with open(conf) as handler:
@@ -517,7 +517,7 @@ class Trainer:
         self.logger.batch_step(analyze_grads=self.analysis_level > 1)
         self.optimizer.step()
         if self.lr_scheduler:
-            self.lr_scheduler.step()
+            self.lr_scheduler.step()  # TODO
 
         if self.analysis_level > 0 and self.do_out:
             self._plot_loss_bacth(loss_pack, "Train", batch_id, epoch)
