@@ -396,9 +396,12 @@ class Trainer:
 
         if "lr_scheduler" in self.conf:
             scheduler_class = load_class(self.conf.lr_scheduler.target)
-            self.lr_scheduler: LRScheduler = scheduler_class(
-                self.optimizer, **dict(self.conf.lr_scheduler.params)
+            params = (
+                self.conf.lr_scheduler.params
+                if "params" in self.conf.lr_scheduler
+                else {}
             )
+            self.lr_scheduler: LRScheduler = scheduler_class(self.optimizer, **params)
             self.logger.info(f"Using scheduler {self.lr_scheduler.__class__.__name__}")
         else:
             self.lr_scheduler = None
@@ -518,18 +521,19 @@ class Trainer:
         batch: Sequence[torch.Tensor] | Dict[str, Sequence[torch.Tensor]],
         epoch: int,
         batch_id: int,
+        batch_count: int,
     ) -> float:
         self.optimizer.zero_grad()
         out = self.learner(batch)
         loss_pack = self.train_loss_fn(out, batch)
         tot_loss = loss_pack["tot"]
         tot_loss.backward()
-        self.logger.batch_step(analyze_grads=self.analysis_level > 1)
-        self.optimizer.step()
         if self.lr_scheduler:
-            self.lr_scheduler.step()  # TODO
+            self.lr_scheduler.step(epoch + batch_id / batch_count)
+        self.optimizer.step()
 
         if self.analysis_level > 0 and self.do_out:
+            self.logger.batch_step(analyze_grads=self.analysis_level > 1)
             self._plot_loss_bacth(loss_pack, "Train", batch_id, epoch)
 
         tot_loss = tot_loss.detach().cpu().item()
@@ -820,7 +824,7 @@ class Trainer:
 
             def process_batch(batch, batch_id):
                 self.optimizer.zero_grad()
-                train_loss = self.train_step(batch, epoch, batch_id)
+                train_loss = self.train_step(batch, epoch, batch_id, train_batch_count)
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
