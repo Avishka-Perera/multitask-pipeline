@@ -105,7 +105,7 @@ def validate_conf(
 
     # validate datasets
     if validate_datasets:
-        train_ds, val_ds, test_ds = load_datasets(conf.data, do_val, do_test)
+        train_ds, val_ds, test_ds = load_datasets(conf, do_val, do_test)
         assert len(train_ds) > 0, "The train_ds has length 0"
         assert not do_val or len(val_ds) > 0, "The val_ds has length 0"
         assert not do_test or len(test_ds) > 0, "The test_ds has length 0"
@@ -239,7 +239,7 @@ def validate_conf(
         ), "Keys in conf.val.loader_params must be the same as the keys in conf.data"
     # end validate the val configurations
 
-    # TODO: vaalidate the test configuration
+    # TODO: validate the test configuration
 
     if logger is not None:
         logger.info(f"Single task configuration for '{conf.name}' valid")
@@ -248,25 +248,34 @@ def validate_conf(
 def load_datasets(
     conf: omegaconf.OmegaConf, do_val, do_test
 ) -> Sequence[Dict[str, Dataset]] | Sequence[Dataset]:
+    data_conf = conf.data
+
+    splits = []
+    for loop in ["train", "val", "test"]:
+        if loop in conf and "split" in conf[loop]:
+            splits.append(conf[loop].split)
+        else:
+            splits.append(loop)
+
     def load_single_dataset(conf):
         dataset_class = load_class(conf.target)
-        train_ds = dataset_class(**dict(conf.params), split="train")
+        train_ds = dataset_class(**dict(conf.params), split=splits[0])
         if do_val:
-            val_ds = dataset_class(**dict(conf.params), split="val")
+            val_ds = dataset_class(**dict(conf.params), split=splits[1])
         else:
             val_ds = None
         if do_test:
-            test_ds = dataset_class(**dict(conf.params), split="test")
+            test_ds = dataset_class(**dict(conf.params), split=splits[2])
         else:
             test_ds = None
 
         return train_ds, val_ds, test_ds
 
-    if "target" in conf:
-        return load_single_dataset(conf)
+    if "target" in data_conf:
+        return load_single_dataset(data_conf)
     else:
         train_dss, val_dss, test_dss = {}, {}, {}
-        for nm, sub_conf in conf.items():
+        for nm, sub_conf in data_conf.items():
             train_ds, val_ds, test_ds = load_single_dataset(sub_conf)
             train_dss[nm] = train_ds
             val_dss[nm] = val_ds
@@ -281,9 +290,7 @@ class Trainer:
     def _load_datasets(
         self,
     ) -> Sequence[BaseDataset] | BaseDataset:
-        train_ds, val_ds, test_ds = load_datasets(
-            self.conf.data, self.do_val, self.do_test
-        )
+        train_ds, val_ds, test_ds = load_datasets(self.conf, self.do_val, self.do_test)
 
         return train_ds, val_ds, test_ds
 
@@ -1013,9 +1020,9 @@ class Trainer:
 
         if self.do_test:
             if os.path.exists(best_ckpt_path):
-                sd = torch.load(best_ckpt_path)["model"]
+                sd = torch.load(best_ckpt_path)["learner"]
             else:
-                sd = torch.load(final_ckpt_path)["model"]
+                sd = torch.load(final_ckpt_path)["learner"]
             if self.is_ddp:
                 self.learner.module.load_state_dict(sd)
             else:
