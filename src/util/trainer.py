@@ -349,7 +349,10 @@ class Trainer:
         learner = self.learner.module if self.is_ddp else self.learner
         sd = ckpt["learner"]
         if ckpt_map_conf_path is None or "learner" not in ckpt_map_info:
-            learner.load_state_dict(sd)
+            if hasattr(learner, "load_ckeckpoint"):
+                learner.load_ckeckpoint(ckpt_path)
+            else:
+                learner.load_state_dict(sd)
         else:
             learner_map_info = ckpt_map_info.learner
             load_model_states(learner, sd, learner_map_info)
