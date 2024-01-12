@@ -23,64 +23,107 @@ class ConvNeXt(nn.Module):
     def __init__(
         self,
         in_chans=3,
-        depths=[None, None, 3, 3, 9, 3],
-        dims=[96, 96, 96, 192, 384, 768],
-        drop_path_rate=0.0,
+        depths={"f7": None, "f6": None, "f5": None, "f4": 3, "f3": 3, "f2": 9, "f1": 3},
+        dims={"f7": 3, "f6": 96, "f5": 96, "f4": 96, "f3": 192, "f2": 384, "f1": 768},
+        pyramid_level_names=["f7", "f6", "f5", "f4", "f3", "f2", "f1"],
+        drop_path_rate=0.5,
         layer_scale_init_value=1e-6,
     ):
         super().__init__()
 
+        self.dims = dims
+        self.pyramid_level_names = pyramid_level_names
+
         self.features = nn.ModuleList()  # 9 layers stem1-stem2-C-D-C-D-C-D-C
         stem1 = nn.Sequential(
-            nn.Conv2d(in_chans, dims[0], kernel_size=4, stride=2, padding=1),
+            nn.Conv2d(
+                in_chans,
+                dims[self.pyramid_level_names[1]],
+                kernel_size=4,
+                stride=2,
+                padding=1,
+            ),
             nn.Dropout(0.1),
-            LayerNorm(dims[1], eps=1e-6, data_format="channels_first"),
+            LayerNorm(
+                dims[self.pyramid_level_names[2]],
+                eps=1e-6,
+                data_format="channels_first",
+            ),
         )
         stem2 = nn.Sequential(
-            nn.Conv2d(dims[0], dims[1], kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(
+                dims[self.pyramid_level_names[1]],
+                dims[self.pyramid_level_names[2]],
+                kernel_size=3,
+                stride=2,
+                padding=1,
+            ),
             nn.Dropout(0.1),
-            LayerNorm(dims[1], eps=1e-6, data_format="channels_first"),
+            LayerNorm(
+                dims[self.pyramid_level_names[2]],
+                eps=1e-6,
+                data_format="channels_first",
+            ),
         )
         self.features.append(stem1)
         self.features.append(stem2)
 
         downsample_layer1 = nn.Sequential(
-            LayerNorm(dims[1], eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(dims[1], dims[2], kernel_size=2, stride=2),
+            LayerNorm(
+                dims[self.pyramid_level_names[2]],
+                eps=1e-6,
+                data_format="channels_first",
+            ),
+            nn.Conv2d(
+                dims[self.pyramid_level_names[2]],
+                dims[self.pyramid_level_names[3]],
+                kernel_size=2,
+                stride=2,
+            ),
             nn.Dropout(0.1),
         )
         self.features.append(downsample_layer1)
 
-        dp_rates = [
-            x.item()
-            for x in torch.linspace(
-                0, drop_path_rate, sum([d for d in depths if d is not None])
-            )
-        ]
-        cur = 0
-        for i in range(2, 6):
-            if i != 2:
+        depths_lst = list(depths.values())
+        dp_rates = torch.linspace(
+            0, drop_path_rate, sum([d for d in depths_lst if d is not None])
+        ).tolist()
+        dp_rates = {
+            k: dp_rates[
+                sum([d for d in depths_lst[:i] if d is not None]) : sum(
+                    [d for d in depths_lst[:i] if d is not None]
+                )
+                + v
+            ]
+            for i, (k, v) in enumerate(depths.items())
+            if v is not None
+        }
+
+        for i in range(3, len(pyramid_level_names)):
+            l = pyramid_level_names[i]
+            l_before = pyramid_level_names[i - 1]
+            if l != self.pyramid_level_names[3]:
                 downsample_layer = nn.Sequential(
-                    LayerNorm(dims[i - 1], eps=1e-6, data_format="channels_first"),
-                    nn.Conv2d(dims[i - 1], dims[i], kernel_size=2, stride=2),
+                    LayerNorm(dims[l_before], eps=1e-6, data_format="channels_first"),
+                    nn.Conv2d(dims[l_before], dims[l], kernel_size=2, stride=2),
                     nn.Dropout(0.1),
                 )
                 self.features.append(downsample_layer)
             stage = nn.Sequential(
                 *[
                     ConvNeXtBlock(
-                        dim=dims[i],
-                        drop_path=dp_rates[cur + j],
+                        dim=dims[l],
+                        drop_path=dp_rates[l][j],
                         layer_scale_init_value=layer_scale_init_value,
                     )
-                    for j in range(depths[i])
+                    for j in range(depths[l])
                 ]
             )
             self.features.append(stage)
-            cur += depths[i]
 
-        self.norm = nn.LayerNorm(dims[-1], eps=1e-6)  # final norm layer
-        self.dims = dims
+        self.norm = nn.LayerNorm(
+            dims[self.pyramid_level_names[-1]], eps=1e-6
+        )  # final norm layer
 
     def _init_weights(self, m):
         if isinstance(m, (nn.Conv2d, nn.Linear)):
@@ -105,10 +148,10 @@ class ConvNeXt(nn.Module):
 
         return {
             "emb": emb,
-            "f1": tenOne,
-            "f2": tenTwo,
-            "f3": tenThr,
-            "f4": tenFou,
-            "f5": tenFiv,
-            "f6": tenSix,
+            self.pyramid_level_names[-1]: tenOne,
+            self.pyramid_level_names[5]: tenTwo,
+            self.pyramid_level_names[4]: tenThr,
+            self.pyramid_level_names[3]: tenFou,
+            self.pyramid_level_names[2]: tenFiv,
+            self.pyramid_level_names[1]: tenSix,
         }

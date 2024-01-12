@@ -5,6 +5,7 @@ from torchvision.models import resnet50, ResNet50_Weights, resnet18, ResNet18_We
 
 class ResNet50(torch.nn.Module):
     def __init__(self, drop_out: float):
+        raise NotImplementedError("TODO: Expose dims as in ConvNeXt")
         super(ResNet50, self).__init__()
 
         model_pretrained = resnet50(weights=ResNet50_Weights.DEFAULT)
@@ -43,6 +44,7 @@ class ResNet50(torch.nn.Module):
 
 class ResNet18(torch.nn.Module):
     def __init__(self, drop_out: float):
+        raise NotImplementedError("TODO: Expose dims as in ConvNeXt")
         super(ResNet18, self).__init__()
 
         model_pretrained = resnet18(weights=ResNet18_Weights.DEFAULT)

@@ -17,6 +17,7 @@ class VisionTransformerBase(timm.models.vision_transformer.VisionTransformer):
     embed_dim = 768
 
     def __init__(self, weights_path=None, global_pool=False, **kwargs):
+        raise NotImplementedError("TODO: Expose dims as in ConvNeXt")
         super(VisionTransformerBase, self).__init__(
             patch_size=16,
             depth=12,
