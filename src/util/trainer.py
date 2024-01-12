@@ -672,8 +672,8 @@ class Trainer:
             self.logger.init_plotter(output_path, model)
 
             if self.do_test:
-                for eval in self.evaluators.values():
-                    eval.set_out_path(os.path.join(output_path, "results"))
+                for nm, eval in self.evaluators.items():
+                    eval.set_out_path(os.path.join(output_path, "evals", nm))
 
         return output_path, min_loss, start_epoch, best_epoch, history
 
