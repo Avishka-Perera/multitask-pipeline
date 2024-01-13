@@ -1,6 +1,6 @@
 import torch
 from .....encoders import ResNet50, ResNet18
-from .....util import Logger, is_lists_equal
+from .....util import Logger, are_lists_equal
 
 
 def test(device: int, logger: Logger) -> None:
@@ -13,7 +13,7 @@ def test(device: int, logger: Logger) -> None:
         mock_batch = torch.Tensor(B, C, H, W).to(device)
 
         feature_pyramid = model(mock_batch)
-        assert is_lists_equal(
+        assert are_lists_equal(
             list(feature_pyramid.keys()), ["embs", "f1", "f2", "f3", "f4", "f5"]
         )
         assert all([tens.shape[0] == B for tens in feature_pyramid.values()])

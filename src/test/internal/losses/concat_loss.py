@@ -1,5 +1,5 @@
 from omegaconf import OmegaConf
-from ....util import Logger, is_lists_equal
+from ....util import Logger, are_lists_equal
 import torch
 import numpy as np
 from ....losses import ConcatLoss, MMCRLoss, CrossEntropyLoss
@@ -33,6 +33,6 @@ def test(device: int, logger: Logger) -> None:
         "logits": torch.Tensor(B, K, out_D),
     }
     loss_pack = conc_loss_fn(mock_out, mock_batch)
-    assert is_lists_equal(list(loss_pack.keys()), ["tot", "mmcr", "cross_entropy"])
+    assert are_lists_equal(list(loss_pack.keys()), ["tot", "mmcr", "cross_entropy"])
     validate_mmcr_losspack(loss_pack["mmcr"])
     validate_ce_losspack(loss_pack["cross_entropy"])

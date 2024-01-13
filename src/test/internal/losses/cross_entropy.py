@@ -1,12 +1,12 @@
 import torch
 from ....losses import CrossEntropyLoss
-from ....util import Logger, is_lists_equal
+from ....util import Logger, are_lists_equal
 import numpy as np
 from typing import Dict
 
 
 def validate_losspack(output: Dict[str, torch.Tensor]) -> None:
-    assert is_lists_equal(list(output.keys()), ["tot"])
+    assert are_lists_equal(list(output.keys()), ["tot"])
     loss = output["tot"]
     assert loss.shape == torch.Size([])
     assert loss.dtype == torch.float

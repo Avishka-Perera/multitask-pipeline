@@ -20,7 +20,7 @@ import logging
 logger = logging.getLogger()
 
 
-def is_lists_equal(lst1, lst2):
+def are_lists_equal(lst1, lst2):
     new_lst2 = [*lst2]
     try:
         for obj in lst1:

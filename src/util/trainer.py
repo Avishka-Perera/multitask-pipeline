@@ -23,7 +23,7 @@ from ..learners import BaseLearner
 from ..datasets import BaseDataset, ConcatSet
 from ..constants import analysis_levels
 from ..util.data import ParallelDataLoader
-from ..util import is_lists_equal
+from ..util import are_lists_equal
 from torch.utils.data import Dataset
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LRScheduler
@@ -217,7 +217,7 @@ def validate_conf(
     )
     # validate that the datapaths are the same as defined in the data definition
     if "target" not in conf.data:
-        assert is_lists_equal(
+        assert are_lists_equal(
             list(conf.data.keys()), list(conf.train.loader_params.keys())
         ), "Keys in conf.train.loader_params must be the same as the keys in conf.data"
     # end validate the train configurations
@@ -234,7 +234,7 @@ def validate_conf(
         )
     # validate that the datapaths are the same as defined in the data definition
     if "target" not in conf.data:
-        assert is_lists_equal(
+        assert are_lists_equal(
             list(conf.data.keys()), list(conf.val.loader_params.keys())
         ), "Keys in conf.val.loader_params must be the same as the keys in conf.data"
     # end validate the val configurations

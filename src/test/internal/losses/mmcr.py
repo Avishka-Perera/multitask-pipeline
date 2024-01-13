@@ -1,11 +1,11 @@
 import torch
 from ....losses import MMCRLoss
-from ....util import Logger, is_lists_equal
+from ....util import Logger, are_lists_equal
 from typing import Dict
 
 
 def validate_losspack(output: Dict[str, torch.Tensor]) -> None:
-    assert is_lists_equal(
+    assert are_lists_equal(
         list(output.keys()), ["tot", "centroids_divergence", "augmentations_divergence"]
     ), list(output.keys())
     for loss in output.values():

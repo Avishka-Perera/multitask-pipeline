@@ -1,7 +1,7 @@
 import os
 from .....encoders import VisionTransformerBase
 import torch
-from .....util import Logger, is_lists_equal
+from .....util import Logger, are_lists_equal
 
 
 def test(
@@ -17,7 +17,7 @@ def test(
     B, C, H, W = 8, 3, 224, 224
     mock_imgs = torch.Tensor(B, C, H, W).cuda(device)
     out = model(mock_imgs)
-    assert is_lists_equal(list(out.keys()), ["embs"])
+    assert are_lists_equal(list(out.keys()), ["embs"])
     embs = out["embs"]
     assert embs.shape == torch.Size([B, model.embed_dim])
     assert embs.dtype == torch.float
