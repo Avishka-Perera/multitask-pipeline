@@ -8,6 +8,7 @@ from typing import Dict
 from ._base import BaseEvaluator
 from ..util import flatten_leads
 from torch import distributed as dist
+import pandas as pd
 
 
 # TODO: handle the DDP gatherings within the trainer. And get rid of the rank and world size in the __init__()
@@ -40,6 +41,7 @@ class ClassificationEvaluator(BaseEvaluator):
         os.makedirs(out_path, exist_ok=True)
         self.conf_mat_path = os.path.join(out_path, "confusion-matrix.png")
         self.report_path = os.path.join(out_path, "report.txt")
+        self.conf_csv_path = os.path.join(out_path, "conf_mat.csv")
 
     def register(
         self, batch: Dict[str, torch.Tensor], out: Dict[str, torch.Tensor]
@@ -78,6 +80,8 @@ class ClassificationEvaluator(BaseEvaluator):
             fig.savefig(self.conf_mat_path)
         else:
             plt.show()
+        df = pd.DataFrame(cm)
+        df.to_csv(self.conf_csv_path, index=True)
 
     def _get_report(self) -> str:
         acc = (np.array(self.preds) == np.array(self.labels)).sum() / len(self.preds)
