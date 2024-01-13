@@ -114,7 +114,7 @@ def validate_conf(
 
     # validate the learner configuration
     learner_required_keys = ["target"]
-    learner_possible_keys = learner_required_keys + ["params", "local_device_maps"]
+    learner_possible_keys = learner_required_keys + ["params", "local_device_maps", "freeze"]
     validate_keys(
         conf.learner.keys(),
         learner_required_keys,
