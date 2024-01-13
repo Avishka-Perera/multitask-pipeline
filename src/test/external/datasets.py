@@ -1,12 +1,13 @@
 from omegaconf import OmegaConf
-from mt_pipe.src.util import Logger, load_class
+from omegaconf.listconfig import ListConfig
+from ...util import Logger, load_class
+from .util import validate_nested_obj
 import numpy as np
 from torch.utils.data import Dataset, Subset
-import torch
 
 
 def get_test_subset(ds: Dataset, test_cnt: int, batch_size: int = None) -> Subset:
-    test_cnt = max(min(test_cnt, len(ds)), 2)
+    test_cnt = min(test_cnt, len(ds))
     if batch_size is not None:
         test_cnt = int(batch_size * (test_cnt // batch_size))
     ids = np.random.randint(0, len(ds), test_cnt)
@@ -19,22 +20,22 @@ def get_test_subset(ds: Dataset, test_cnt: int, batch_size: int = None) -> Subse
 def test(logger: Logger, conf: OmegaConf, test_cnt: int) -> None:
     logger.info("Testing Datasets...")
 
+    def validate_single(root, split, params, sample_conf):
+        ds = cls(root=root, split=split, **params)
+        assert len(ds) > 0, "Dataset length cannot be 0"
+        if "sample_conf" in conf:
+            ds = get_test_subset(ds, test_cnt)
+            for sample in ds:
+                valid, msg = validate_nested_obj(sample, sample_conf)
+                assert valid, msg
+
     for ds_name, conf in conf.items():
         logger.info(f"Testing {ds_name}...")
         cls = load_class(conf.target)
-        for split in conf.split:
-            ds = cls(root=conf.root, split=split, **dict(conf.params))
-            if "sample_conf" in conf:
-                ds = get_test_subset(ds, test_cnt)
-                for sample in ds:
-                    for itm_nm, itm_conf in conf.sample_conf.items():
-                        itm = sample[itm_nm]
-                        for atr, trgt in itm_conf.items():
-                            if atr == "dtype":
-                                assert itm.dtype == load_class(trgt)
-                            if atr == "shape":
-                                assert itm.shape == torch.Size(trgt)
-                            if atr == "min":
-                                assert itm.min() >= trgt
-                            if atr == "max":
-                                assert itm.max() <= trgt
+        params = conf.params if "params" in conf else {}
+        for split in conf.splits:
+            if type(conf.root) == ListConfig:
+                for root in conf.root:
+                    validate_single(root, split, params, conf.sample_conf)
+            else:
+                validate_single(conf.root, split, params, conf.sample_conf)

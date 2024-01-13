@@ -37,7 +37,7 @@ def parse_args():
         "-c",
         "--conf-dir",
         type=str,
-        required=True,
+        default="test",
         help="Defines what devices to use for testing",
     )
     parser.add_argument(
@@ -86,6 +86,11 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+
+    if not os.path.exists(args.conf_dir):
+        raise FileNotFoundError(
+            f"The provided configs directory ({args.conf_dir}) dose not exist."
+        )
 
     logger = Logger(1)
 

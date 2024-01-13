@@ -30,14 +30,14 @@ class Logger:
     def _format(self, txt: str) -> str:
         return txt if self.rank is None else f"R{self.rank}: {txt}"
 
-    def info(self, txt: str) -> None:
+    def info(self, txt: str = "") -> None:
         if self.display_info:
             self.logger.info(self._format(txt))
 
-    def warn(self, txt: str) -> None:
+    def warn(self, txt: str = "") -> None:
         self.logger.warn(self._format(txt))
 
-    def error(self, txt: str) -> None:
+    def error(self, txt: str = "") -> None:
         self.logger.error(self._format(txt))
 
     # plotting
