@@ -106,4 +106,4 @@ if __name__ == "__main__":
             if conf_name == "learners":
                 test_learner(logger=logger, conf=conf, devices=args.devices)
 
-        print()
+        logger.info()

@@ -244,7 +244,7 @@ def download_s3_directory(s3_uri, local_path, show_pbar=False):
                 download_with_pbar(s3, bucket_name, object_key, local_file_path)
             else:
                 s3.download_file(bucket_name, object_key, local_file_path)
-                print(f"Downloaded: {object_key} to {local_file_path}")
+                logger.info(f"Downloaded: {object_key} to {local_file_path}")
 
 
 def load_model_states(

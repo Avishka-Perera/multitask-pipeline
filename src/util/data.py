@@ -4,6 +4,9 @@ import glob
 from typing import Sequence
 import numpy as np
 import re
+import logging
+
+logger = logging.getLogger()
 
 
 def extract_parts(input_string):
@@ -99,7 +102,7 @@ def split_class_dataset(
             brk_pts = get_break_points(len(cls_imgs), split_rat)
         except ValueError as e:
             if type(e.args[0]) == list:
-                print(f"WARNING: Not sufficient samples for class '{cls}'")
+                logger.warn(f"Not sufficient samples for class '{cls}'")
                 brk_pts = e.args[0]
             else:
                 msg = f"{str(e)}: {cls}"
@@ -113,7 +116,7 @@ def split_class_dataset(
             split_paths[split_nm].extend(cls_imgs[s:e])
 
     for nm, lst in split_paths.items():
-        print(nm, len(lst))
+        logger.info(nm, len(lst))
 
     split_dir = os.path.join(ant_dir, "splits")
     os.makedirs(split_dir, exist_ok=True)

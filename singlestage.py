@@ -13,6 +13,7 @@ from mt_pipe.src.util import set_all_seeds, Logger
 import torch
 from mt_pipe.src.util.ddp import setup, cleanup, spawn
 from mt_pipe.src.constants import analysis_levels, log_levels
+import logging
 
 
 def parse_args():
@@ -164,5 +165,6 @@ if __name__ == "__main__":
     ), f"Requires at least {replica_size} GPUs to run, but got {n_gpus}"
     world_size = n_gpus // replica_size
     if args.verbose != 0:
-        print(f"replica_size: {replica_size}, world_size: {world_size}")
+        logger = logging.getLogger()
+        logger.info(f"replica_size: {replica_size}, world_size: {world_size}")
     spawn(main, world_size, args)

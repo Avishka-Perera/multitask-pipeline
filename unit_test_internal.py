@@ -7,13 +7,12 @@ from src.test.internal.losses import test as test_cost
 from src.test.internal.evaluators import test as test_evaluator
 from src.test.internal.datasets import test as test_dataset
 
-# from src.test.internal.other import test as test_other
-
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(name)s:%(levelname)s: %(message)s"
 )
+logger = logging.getLogger()
 seed = round(random.random() * 100)
-print(f"Using seed: {seed}")
+logger.info(f"Using seed: {seed}")
 set_all_seeds(seed)
 
 
