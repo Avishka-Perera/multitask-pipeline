@@ -9,8 +9,9 @@ import os
 from argparse import ArgumentParser
 import glob
 from mt_pipe.src.test.external.datasets import test as test_datasets
-from mt_pipe.src.test.external.learners import test as test_learners
 from mt_pipe.src.test.external.models import test as test_models
+from mt_pipe.src.test.external.learners import test as test_learners
+from mt_pipe.src.test.external.losses import test as test_losses
 from mt_pipe.src.util import Logger
 import yaml
 from omegaconf import OmegaConf
@@ -97,7 +98,7 @@ if __name__ == "__main__":
 
     conf_paths = glob.glob(f"{args.conf_dir}/*.yaml")
     conf_names = [".".join(os.path.split(p)[1].split(".")[:-1]) for p in conf_paths]
-    valid_conf_names = ["datasets", "learners", "models"]
+    valid_conf_names = ["datasets", "learners", "models", "losses"]
     assert all(
         [n in valid_conf_names for n in conf_names]
     ), f"Invalid configuration file name"
@@ -110,9 +111,12 @@ if __name__ == "__main__":
             if conf_name == "datasets":
                 test_datasets(logger=logger, conf=conf, test_cnt=args.dataset_test_cnt)
                 logger.info()
+            if conf_name == "models":
+                test_models(logger=logger, conf=conf)
+                logger.info()
             if conf_name == "learners":
                 test_learners(logger=logger, conf=conf, devices=args.devices)
                 logger.info()
-            if conf_name == "models":
-                test_models(logger=logger, conf=conf)
+            if conf_name == "losses":
+                test_losses(logger=logger, conf=conf, device=args.devices[0])
                 logger.info()

@@ -5,7 +5,6 @@ from typing import Sequence
 
 
 def test(logger: Logger, conf: OmegaConf, devices: Sequence[int]) -> None:
-    print(devices)
     logger.info("Testing Learners...")
     for ln_nm, ln_conf in conf.items():
         if "encoder" in ln_conf:
@@ -27,7 +26,7 @@ def test(logger: Logger, conf: OmegaConf, devices: Sequence[int]) -> None:
         learner = learner_cls(**ln_params, devices=devices)
 
         batch = make_random_nested_tens(ln_conf.input_conf)
-        out = learner(batch)
+        out = learner(batch=batch)
         valid, msg = validate_nested_obj(out, ln_conf.output_conf)
 
         assert valid, msg
