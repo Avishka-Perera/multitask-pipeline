@@ -1,20 +1,33 @@
-import torch
-from mt_pipe.src.util import Logger, load_class
+from ...util import Logger, load_class
+from .util import make_random_nested_tens, validate_nested_obj
 from omegaconf import OmegaConf
 from typing import Sequence
 
 
 def test(logger: Logger, conf: OmegaConf, devices: Sequence[int]) -> None:
+    print(devices)
     logger.info("Testing Learners...")
     for ln_nm, ln_conf in conf.items():
-        logger.info(f"Testing {ln_nm}...")
-        ln_cls = load_class(ln_conf.target)
-        ln = ln_cls(**dict(ln_conf.params), logger=logger, devices=devices)
-        batch = {k: torch.Tensor(*v) for k, v in ln_conf.batch_conf.items()}
-        out = ln(batch)
-        for k, val_conf in ln_conf.val_conf.items():
-            for atr, trgt in val_conf.items():
-                if atr == "shape":
-                    assert out[k].shape == torch.Size(trgt)
-                if atr == "dtype":
-                    assert out[k].dtype == load_class(trgt)
+        if "encoder" in ln_conf:
+            # i.e., a this is a sharing learner
+            logger.info(f"Testing {ln_nm} (Sharing configuration)...")
+
+            encoder_cls = load_class(ln_conf.encoder.target)
+            params = ln_conf.encoder.params if "params" in ln_conf.encoder else ()
+            encoder = encoder_cls(**params).cuda(devices[0])
+
+            ln_params = ln_conf.learner.params if "params" in ln_conf.learner else {}
+            ln_params = {"encoder": encoder, **ln_params}
+        else:
+            logger.info(f"Testing {ln_nm} (Independant configuration)...")
+
+            ln_params = ln_conf.learner.params if "params" in ln_conf.learner else {}
+
+        learner_cls = load_class(ln_conf.learner.target)
+        learner = learner_cls(**ln_params, devices=devices)
+
+        batch = make_random_nested_tens(ln_conf.input_conf)
+        out = learner(batch)
+        valid, msg = validate_nested_obj(out, ln_conf.output_conf)
+
+        assert valid, msg

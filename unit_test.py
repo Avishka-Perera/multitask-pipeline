@@ -46,7 +46,7 @@ def parse_args():
         "--devices",
         type=int,
         nargs="+",
-        default=[2, 3],
+        default=[0, 1],
         help="Defines what devices to use for testing",
     )
     parser.add_argument(
