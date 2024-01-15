@@ -45,7 +45,7 @@ class VisionTransformerBase(timm.models.vision_transformer.VisionTransformer):
         if weights is not None:
             self.load_weights(weights)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
         B = x.shape[0]
         x = self.patch_embed(x)
 
@@ -67,6 +67,9 @@ class VisionTransformerBase(timm.models.vision_transformer.VisionTransformer):
             outcome = x[:, 0]
 
         return outcome
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x)
 
     def _download_weights(self, name: str, path: str):
         logger.info(f"Downloading pretrained weights for {name}")
