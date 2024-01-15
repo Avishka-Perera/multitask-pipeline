@@ -6,6 +6,18 @@ from timm.layers import LayerNorm2d
 
 
 class ConvNeXt_T(timmConvNeXt):
+    # required attributes for the mt_pipe architecture
+    dims = {
+        "f7": 3,
+        "f6": 96,
+        "f5": 96,
+        "f4": 96,
+        "f3": 192,
+        "f2": 384,
+        "f1": 768,
+    }
+    pyramid_level_names = ["f7", "f6", "f5", "f4", "f3", "f2", "f1"]
+
     def __init__(
         self,
         in_chans: int = 3,
@@ -57,28 +69,22 @@ class ConvNeXt_T(timmConvNeXt):
             drop_path_rate,
         )
 
+        # delete the unwanted head
         delattr(self, "head")
         delattr(self, "norm_pre")
+
+        # replace the original stem layer ([Conv4x4 -> LayerNorm]) with a new stem layer ([Conv3x3 -> Conv4x4 -> LayerNorm])
         self.stem = Sequential(
             Conv2d(3, 96, kernel_size=(3, 3), stride=(2, 2), padding=1),
             Conv2d(96, 96, kernel_size=(4, 4), stride=(2, 2), padding=1),
             LayerNorm2d((96,), eps=1e-06),
         )
-        self.stages[0].downsample = Sequential(  # TODO: is it safe to do this
+
+        # add an additional downsample at the first stage (originally Identity) !!!TODO: is it safe to do this
+        self.stages[0].downsample = Sequential(  #
             LayerNorm2d((96,), eps=1e-06),
             Conv2d(96, 96, kernel_size=(2, 2), stride=(2, 2)),
         )
-
-        self.dims = {
-            "f7": 3,
-            "f6": 96,
-            "f5": 96,
-            "f4": 96,
-            "f3": 192,
-            "f2": 384,
-            "f1": 768,
-        }
-        self.pyramid_level_names = ["f7", "f6", "f5", "f4", "f3", "f2", "f1"]
 
     def forward(self, x) -> torch.Tensor:
         f6 = self.stem[0](x)
