@@ -336,7 +336,6 @@ class Trainer:
             learner: BaseLearner = learner_class(devices=devices)
 
         if self.is_ddp:
-            # self.model = DDP(model, find_unused_parameters=True)
             self.learner = DDP(learner)
         else:
             self.learner = learner

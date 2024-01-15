@@ -9,8 +9,8 @@ class ConvNeXt_T(timmConvNeXt):
     # required attributes for the mt_pipe architecture
     dims = {
         "f7": 3,
-        "f6": 96,
-        "f5": 96,
+        "f6": 48,
+        "f5": 48,
         "f4": 96,
         "f3": 192,
         "f2": 384,
@@ -75,22 +75,28 @@ class ConvNeXt_T(timmConvNeXt):
 
         # replace the original stem layer ([Conv4x4 -> LayerNorm]) with a new stem layer ([Conv3x3 -> Conv4x4 -> LayerNorm])
         self.stem = Sequential(
-            Conv2d(3, 96, kernel_size=(3, 3), stride=(2, 2), padding=1),
-            Conv2d(96, 96, kernel_size=(4, 4), stride=(2, 2), padding=1),
-            LayerNorm2d((96,), eps=1e-06),
+            Sequential(
+                Conv2d(3, 48, kernel_size=(4, 4), stride=(2, 2), padding=1),
+                LayerNorm2d((48,), eps=1e-06),
+            ),
+            Sequential(
+                Conv2d(48, 48, kernel_size=(3, 3), stride=(2, 2), padding=1),
+                LayerNorm2d((48,), eps=1e-06),
+            ),
         )
 
-        # add an additional downsample at the first stage (originally Identity) !!!TODO: is it safe to do this
+        # add an additional downsample at the first stage (originally Identity)
         self.stages[0].downsample = Sequential(  #
-            LayerNorm2d((96,), eps=1e-06),
-            Conv2d(96, 96, kernel_size=(2, 2), stride=(2, 2)),
+            LayerNorm2d((48,), eps=1e-06),
+            Conv2d(48, 96, kernel_size=(2, 2), stride=(2, 2)),
         )
 
     def forward(self, x) -> torch.Tensor:
         f6 = self.stem[0](x)
         f5 = self.stem[1](f6)
-        inter = self.stem[2](f5)
-        f4 = self.stages[0](inter)
+        # f5 = self.stem[2](f6)
+        # f5 = self.stem[3](f5)
+        f4 = self.stages[0](f5)
         f3 = self.stages[1](f4)
         f2 = self.stages[2](f3)
         f1 = self.stages[3](f2)
