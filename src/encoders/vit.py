@@ -4,20 +4,25 @@ import torch.nn as nn
 import timm.models.vision_transformer
 import os
 from torchvision.datasets.utils import download_url
+from ..constants import model_weights_dir
+import logging
+
+logger = logging.getLogger()
 
 
 # based on https://github.com/facebookresearch/mae
 class VisionTransformerBase(timm.models.vision_transformer.VisionTransformer):
     """Vision Transformer with support for global average pooling"""
 
-    mae_weights = {
-        "url": "https://dl.fbaipublicfiles.com/mae/pretrain/mae_pretrain_vit_base.pth",
-        "md5": "8cad7c",
+    weights = {
+        "MAE": {
+            "url": "https://dl.fbaipublicfiles.com/mae/pretrain/mae_pretrain_vit_base.pth",
+            "md5": "8cad7c8458a98d92977cf31e98c74644",
+        }
     }
     embed_dim = 768
 
-    def __init__(self, weights_path=None, global_pool=False, **kwargs):
-        raise NotImplementedError("TODO: Expose dims as in ConvNeXt")
+    def __init__(self, weights: str = None, global_pool=False, **kwargs):
         super(VisionTransformerBase, self).__init__(
             patch_size=16,
             depth=12,
@@ -25,7 +30,7 @@ class VisionTransformerBase(timm.models.vision_transformer.VisionTransformer):
             mlp_ratio=4,
             qkv_bias=True,
             norm_layer=partial(nn.LayerNorm, eps=1e-6),
-            **kwargs
+            **kwargs,
         )
 
         self.global_pool = global_pool
@@ -37,10 +42,10 @@ class VisionTransformerBase(timm.models.vision_transformer.VisionTransformer):
             del self.norm  # remove the original norm
 
         self.head = nn.Identity()
-        if weights_path is not None:
-            self.load_weights(weights_path)
+        if weights is not None:
+            self.load_weights(weights)
 
-    def forward_features(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         B = x.shape[0]
         x = self.patch_embed(x)
 
@@ -63,21 +68,46 @@ class VisionTransformerBase(timm.models.vision_transformer.VisionTransformer):
 
         return outcome
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        embs = super().forward(x)
-        return {"embs": embs}
+    def _download_weights(self, name: str, path: str):
+        logger.info(f"Downloading pretrained weights for {name}")
 
-    def _download_weights(self, path):
         root, filename = os.path.split(path)
-        download_url(
-            self.mae_weights["url"],
-            root,
-            filename,
-            self.mae_weights["md5"],
-        )
+        downloaded = False
+        max_attempts = 2
+        attempts = 1
+        while not downloaded:
+            try:
+                download_url(
+                    self.weights[name]["url"],
+                    root,
+                    filename,
+                    self.weights[name]["md5"] if "md5" in self.weights[name] else None,
+                )
+                downloaded = True
+            except RuntimeError as e:
+                if str(e) != "File not found or corrupted.":
+                    raise e
+                elif attempts >= max_attempts:
+                    raise RuntimeError(
+                        f"Possible invalid checksum definition. Failed {attempts} attempts."
+                    )
+                else:
+                    attempts += 1
+                    logger.warn(
+                        f"Initial checksum failed. Downloading again (attempt={attempts})..."
+                    )
 
-    def load_weights(self, path):
-        if not os.path.exists(path):
-            self._download_weights(path)
-        sd = torch.load(path)
+    def load_weights(self, weights: str):
+        valid_weights = list(self.weights.keys())
+        if weights not in valid_weights:
+            raise ValueError(
+                f"Invalid weights definition. Valid weights are {valid_weights}"
+            )
+
+        weights_path = os.path.join(
+            model_weights_dir, "encoders", "vit-b", f"{weights.lower()}.pth"
+        )
+        if not os.path.exists(weights_path):
+            self._download_weights(weights, weights_path)
+        sd = torch.load(weights_path)
         self.load_state_dict(sd["model"])
