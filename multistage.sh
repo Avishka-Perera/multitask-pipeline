@@ -83,6 +83,77 @@ if [ ${#trans[@]} -gt $length ]; then
     length=${#trans[@]}
 fi
 
+
+if [ -z "$mock_batch_count" ] && [ -z "$mock_epoch_count" ]; then
+    echo "Validating configurations"
+    
+    conf=""
+    tran=""
+    stage_run_name=""
+    ckpt_path=""
+    for ((i = 0; i < length; i++)); do
+
+        if [ $i -lt ${#confs[@]} ]; then
+            conf=${confs[i]}
+        fi
+
+        if [ $i -gt 0 ]; then
+            if [ $((i-1)) -lt ${#trans[@]} ]; then
+                tran=${trans[i-1]}
+                ckpt_path="$output_path/$stage_run_name/ckpts/final.ckpt"
+            fi
+        fi
+
+        stage_run_name="$run_name/stage$i"
+        options=()
+        if [ -n "$conf" ]; then
+            options+=("-c" "$conf")
+        fi
+        if [ -n "$device" ]; then
+            options+=("-d" "$device")
+        fi
+        if [ -n "$replica_size" ]; then
+            options+=("-r" "$replica_size")
+        fi
+        if [ -n "$analysis_level" ]; then
+            options+=("-a" "$analysis_level")
+        fi
+        if [ -n "$stage_run_name" ]; then
+            options+=("--run-name" "$stage_run_name")
+        fi
+        if [ -n "$ckpt_path" ]; then
+            options+=("--ckpt-path" "$ckpt_path")
+        fi
+        if [ -n "$tran" ]; then
+            options+=("--ckpt-map-conf-path" "$tran")
+        fi
+
+        options+=("--mock-batch-count" "1")
+        options+=("--mock-epoch-count" "1")
+
+        python_command="python mt_pipe/singlestage.py ${options[@]}"
+        
+        echo ""
+        echo "+----------------------------------"
+        echo "| Invoking command \`$python_command\`"
+        echo "+----------------------------------"
+        echo ""
+        eval "$python_command"
+
+        if [ $? -ne 0 ]; then
+            echo "Error: Stage$i failed "
+            exit 1
+        fi
+    done
+
+    echo "Configurations validation successful"
+    echo ""
+    echo ""
+    echo "Running actual job"
+fi
+
+
+# start the job
 conf=""
 tran=""
 stage_run_name=""
