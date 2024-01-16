@@ -11,7 +11,7 @@ import ast
 from mt_pipe.src.util import Trainer
 from mt_pipe.src.util import set_all_seeds, Logger
 import torch
-from mt_pipe.src.util.ddp import setup, cleanup, spawn
+from mt_pipe.src.util.ddp import setup, cleanup, spawn, is_port_available
 from mt_pipe.src.constants import analysis_levels, log_levels
 import logging
 
@@ -117,10 +117,10 @@ def parse_args():
     return args
 
 
-def main(rank, world_size, args):
+def main(rank, world_size, args, ddp_port):
     logger = Logger(args.verbose, rank)
-    logger.info(f"Running DDP on rank {rank}.")
-    setup(rank, world_size)
+    logger.info(f"Running DDP on rank {rank}, Rendezvous port {ddp_port}.")
+    setup(rank, world_size, ddp_port)
 
     # setup mp_model and devices for the process
     devices = [
@@ -167,4 +167,10 @@ if __name__ == "__main__":
     if args.verbose != 0:
         logger = logging.getLogger()
         logger.info(f"replica_size: {replica_size}, world_size: {world_size}")
-    spawn(main, world_size, args)
+
+    # Find an available port
+    ddp_port = 12355
+    while not is_port_available(ddp_port):
+        ddp_port += 1
+
+    spawn(main, world_size, args, ddp_port)

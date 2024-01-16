@@ -22,11 +22,7 @@ def is_port_available(port: int) -> bool:
         sock.close()
 
 
-def setup(rank, world_size):
-    port = 12355
-    while not is_port_available(port):
-        port += 1
-
+def setup(rank, world_size, port):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(port)
 
@@ -38,5 +34,5 @@ def cleanup():
     dist.destroy_process_group()
 
 
-def spawn(func, world_size, args):
-    mp.spawn(func, args=(world_size, args), nprocs=world_size, join=True)
+def spawn(func, world_size, args, port):
+    mp.spawn(func, args=(world_size, args, port), nprocs=world_size, join=True)
