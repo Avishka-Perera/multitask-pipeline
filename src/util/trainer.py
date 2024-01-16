@@ -641,12 +641,20 @@ class Trainer:
             if os.path.exists(exp_ckpt_path):
                 start_epoch = self._load_ckpt(exp_ckpt_path) + 1
                 history = pd.read_csv(os.path.join(output_path, "history.csv"))
-                min_loss = history["val_loss"].min()
-                best_epoch = history["val_loss"].argmin()
+
+                if "val_loss" in history:
+                    min_loss = history["val_loss"].min()
+                    best_epoch = history["val_loss"].argmin()
+                else:
+                    min_loss = float("inf")
+                    best_epoch = -1
+
                 history = history.to_dict()
                 del history["epoch"]
                 history["train_loss"] = list(history["train_loss"].values())
-                history["val_loss"] = list(history["val_loss"].values())
+
+                if "val_loss" in history:
+                    history["val_loss"] = list(history["val_loss"].values())
             else:
                 # init trackers
                 start_epoch = 0
