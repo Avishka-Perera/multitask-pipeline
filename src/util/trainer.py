@@ -31,7 +31,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 import gc
-from functools import partial
+from functools import partial, reduce
 
 
 def validate_conf(
@@ -419,11 +419,7 @@ class Trainer:
             for eval_nm, eval_conf in self.conf.test.evaluators.items():
                 eval_class = load_class(eval_conf.target)
                 params = dict(eval_conf.params) if "params" in eval_conf else {}
-                self.evaluators[eval_nm] = eval_class(
-                    rank=self.rank,
-                    world_size=self.world_size,
-                    **params,
-                )
+                self.evaluators[eval_nm] = eval_class(**params)
 
     def __init__(
         self,
@@ -896,14 +892,34 @@ class Trainer:
             ) as pbar:
                 if not show_pbar:
                     self.logger.info("Testing")
+
+                results = {nm: [] for nm in self.evaluators.keys()}
                 for batch in test_dl:
                     out = self.learner(batch)
-                    for eval in self.evaluators.values():
-                        eval.register(batch=batch, out=out)
+                    for nm, eval in self.evaluators.items():
+                        results[nm].append(eval.process_batch(batch=batch, out=out))
                     pbar.update()
 
-                for eval in self.evaluators.values():
-                    eval.output()
+                # gather all results at rank 0 replica
+                if self.is_ddp:
+                    all_results = [None for _ in range(self.world_size)]
+
+                    if self.rank == 0:
+                        dist.gather_object(results, all_results)
+                    else:
+                        dist.gather_object(results)
+
+                    if self.rank == 0:
+                        results = reduce(
+                            lambda i, res: {k: v + res[k] for k, v in i.items()},
+                            all_results,
+                            {k: [] for k in all_results[0].keys()},
+                        )
+
+                # output the results
+                if self.do_out:
+                    for nm, eval in self.evaluators.items():
+                        eval.output(results[nm])
 
     def _get_fit_info(self, mock_epoch_count, train_dl, val_dl):
         tollerance = self.conf.train.tollerance
