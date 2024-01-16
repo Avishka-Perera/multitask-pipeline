@@ -106,6 +106,11 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
                     )
 
         elif type(obj) in [tuple, list]:
+            if type(conf) not in [tuple, list, ListConfig]:
+                return False, f"conf and obj types dose not match. Key: {key_lead}"
+            if len(conf) != len(obj):
+                return False, f"conf and obj have different sizes. Key: {key_lead}"
+
             for i, sub_obj in enumerate(obj):
                 if i < len(conf):
                     valid, msg = validate_nested_objs(
@@ -120,6 +125,11 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
                     return False, f"Unexpected object. Key: {key_lead}[{k}]"
 
         else:  # type(obj) = dict
+            if type(conf) not in [dict, DictConfig]:
+                return False, f"conf and obj types dose not match. Key: {key_lead}"
+            if not are_lists_equal(list(conf.keys()), list(obj.keys())):
+                return False, f"conf and obj have different keys. Key: {key_lead}"
+
             for k, sub_obj in obj.items():
                 lead = f'{key_lead}["{k}"]' if type(k) == str else f"{key_lead}[{k}]"
                 if k in conf:

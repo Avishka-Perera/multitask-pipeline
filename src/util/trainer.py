@@ -527,9 +527,9 @@ class Trainer:
         loss_pack = self.train_loss_fn(out, batch)
         tot_loss = loss_pack["tot"]
         tot_loss.backward()
-        if self.lr_scheduler:
-            self.lr_scheduler.step(epoch + batch_id / batch_count)
         self.optimizer.step()
+        if self.lr_scheduler:
+            self.lr_scheduler.step(epoch + (batch_id + 1) / batch_count)
 
         if self.analysis_level > 0 and self.do_out:
             self.logger.batch_step(analyze_grads=self.analysis_level > 1)
