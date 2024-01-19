@@ -36,9 +36,9 @@ class ClassificationEvaluator(BaseEvaluator):
         self.report_path = os.path.join(out_path, "report.txt")
 
     def process_batch(
-        self, batch: Dict[str, torch.Tensor], out: Dict[str, torch.Tensor]
+        self, batch: Dict[str, torch.Tensor], info: Dict[str, torch.Tensor]
     ) -> Dict[str, list]:
-        logits = out["logits"]
+        logits = info["logits"]
         labels = batch["lbl"]
         if self.has_auf_ax:
             logits = flatten_leads(logits, 2)

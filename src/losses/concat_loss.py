@@ -10,7 +10,7 @@ class ConcatLoss:
         self,
         device: int,
         conf: DictConfig | Dict[str, object] = {},
-        weight: float = -1,
+        weight_scale: float = -1,
     ) -> None:
         self.loss_fns = {}
         conf = OmegaConf.create(conf)
@@ -31,14 +31,14 @@ class ConcatLoss:
 
     def __call__(
         self,
-        out: Dict[str, torch.Tensor],
+        info: Dict[str, torch.Tensor],
         batch: Sequence[torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
         total_loss = torch.tensor(0.0).cuda(self.device)
         glob_loss_pack = {}
         for nm, loss_fn in self.loss_fns.items():
-            fn_inp = out[self.conf[nm].branch] if "branch" in self.conf[nm] else out
-            loss_pack = loss_fn(out=fn_inp, batch=batch)
+            fn_inp = info[self.conf[nm].branch] if "branch" in self.conf[nm] else info
+            loss_pack = loss_fn(info=fn_inp, batch=batch)
             glob_loss_pack[nm] = loss_pack
             loss = loss_pack["tot"]
             if not torch.isnan(loss):

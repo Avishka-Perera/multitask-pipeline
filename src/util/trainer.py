@@ -506,8 +506,8 @@ class Trainer:
         epoch: int,
         batch_id: int,
     ) -> torch.Tensor:
-        out = self.learner(batch)
-        loss_pack = self.val_loss_fn(out, batch)
+        info = self.learner(batch)
+        loss_pack = self.val_loss_fn(info, batch)
         tot_loss = loss_pack["tot"]
 
         if self.analysis_level > 0 and self.do_out:
@@ -523,8 +523,8 @@ class Trainer:
         batch_count: int,
     ) -> float:
         self.optimizer.zero_grad()
-        out = self.learner(batch)
-        loss_pack = self.train_loss_fn(out, batch)
+        info = self.learner(batch)
+        loss_pack = self.train_loss_fn(info, batch)
         tot_loss = loss_pack["tot"]
         tot_loss.backward()
         self.optimizer.step()
@@ -903,9 +903,9 @@ class Trainer:
 
                 results = {nm: [] for nm in self.evaluators.keys()}
                 for batch in test_dl:
-                    out = self.learner(batch)
+                    info = self.learner(batch)
                     for nm, eval in self.evaluators.items():
-                        results[nm].append(eval.process_batch(batch=batch, out=out))
+                        results[nm].append(eval.process_batch(batch=batch, info=info))
                     pbar.update()
 
                 # gather all results at rank 0 replica

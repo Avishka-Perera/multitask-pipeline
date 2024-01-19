@@ -5,13 +5,13 @@ from torch import Tensor
 
 class BaseLoss:
     @abstractmethod
-    def __init__(self, device: int, weight: float, *args, **kwargs) -> None:
+    def __init__(self, device: int, weight_scale: float, *args, **kwargs) -> None:
         raise NotImplementedError()
 
     @abstractmethod
     def __call__(
         self,
-        out: Dict[str, Tensor],
+        info: Dict[str, Tensor],
         batch: Sequence[Tensor],
     ) -> Dict[str, Tensor]:
         raise NotImplementedError()

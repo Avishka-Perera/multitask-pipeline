@@ -7,15 +7,15 @@ class MMCRLoss:
         self,
         device: int,
         lamb: float,
-        weight: float = 1,
+        weight_scale: float = 1,
     ) -> None:
         self.lamb = lamb
         self.device = device
-        self.weight = weight
+        self.weight_scale = weight_scale
 
     def __call__(
         self,
-        out: Dict[str, torch.Tensor],
+        info: Dict[str, torch.Tensor],
         batch: Sequence[torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
         """
@@ -24,7 +24,7 @@ class MMCRLoss:
             K: augmentation count
             D: dimension of a single embedding
         """
-        embs = out["embs"]
+        embs = info["embs"]
         embs = embs.cuda(self.device)
 
         K = embs.shape[1]
@@ -38,11 +38,9 @@ class MMCRLoss:
         U_z, S_z, V_z = z.svd()
         U_c, S_c, V_c = c.svd()
 
-        centroids_divergence = S_c.sum()
-        augmentations_divergence = S_z.sum() / K
+        centroids_divergence = S_c.sum() * self.weight_scale
+        augmentations_divergence = S_z.sum() / K * self.weight_scale
         loss = self.lamb * augmentations_divergence + -1 * centroids_divergence
-
-        loss = loss * self.weight
 
         return {
             "tot": loss,
