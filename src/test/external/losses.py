@@ -13,10 +13,10 @@ def test(logger: Logger, conf: OmegaConf, device: int) -> None:
         params = loss_conf.loss_fn.params if "params" in loss_conf.loss_fn else {}
         loss_fn = loss_cls(**params, device=device)
 
-        out = make_random_nested_tens(loss_conf.input_conf.out)
+        info = make_random_nested_tens(loss_conf.input_conf.info)
         batch = make_random_nested_tens(loss_conf.input_conf.batch)
 
-        loss_pack = loss_fn(out=out, batch=batch)
+        loss_pack = loss_fn(info=info, batch=batch)
         none_mask = (
             loss_conf.output_conf.none_mask
             if "none_mask" in loss_conf.output_conf

@@ -11,7 +11,7 @@ class BaseLoss:
     @abstractmethod
     def __call__(
         self,
-        out: Dict[str, Tensor],
+        info: Dict[str, Tensor],
         batch: Sequence[Tensor],
     ) -> Dict[str, Tensor]:
         raise NotImplementedError()

@@ -20,7 +20,7 @@ class BaseEvaluator:
         raise NotImplementedError()
 
     @abstractmethod
-    def process_batch(self, batch: Dict[str, Tensor], out: Dict[str, Tensor]) -> None:
+    def process_batch(self, batch: Dict[str, Tensor], info: Dict[str, Tensor]) -> None:
         raise NotImplementedError()
 
     @abstractmethod

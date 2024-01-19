@@ -22,10 +22,10 @@ class CrossEntropyLoss:
 
     def __call__(
         self,
-        out: Dict[str, torch.Tensor],
+        info: Dict[str, torch.Tensor],
         batch: Sequence[torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
-        logits = out["logits"].cuda(self.device)
+        logits = info["logits"].cuda(self.device)
         labels = batch["lbl"].cuda(self.device)
         if self.has_aug_ax:
             logits = flatten_leads(logits, 2)

@@ -15,7 +15,7 @@ class MMCRLoss:
 
     def __call__(
         self,
-        out: Dict[str, torch.Tensor],
+        info: Dict[str, torch.Tensor],
         batch: Sequence[torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
         """
@@ -24,7 +24,7 @@ class MMCRLoss:
             K: augmentation count
             D: dimension of a single embedding
         """
-        embs = out["embs"]
+        embs = info["embs"]
         embs = embs.cuda(self.device)
 
         K = embs.shape[1]

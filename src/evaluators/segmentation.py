@@ -10,6 +10,7 @@ from ..util import flatten_leads
 import pandas as pd
 from functools import reduce
 
+
 class SegmentationEvaluator(BaseEvaluator):
     def __init__(
         self,
@@ -39,16 +40,14 @@ class SegmentationEvaluator(BaseEvaluator):
         os.makedirs(out_path, exist_ok=True)
         self.report_path = os.path.join(out_path, "report.txt")
 
-
     def process_batch(
-        self, batch: Dict[str, torch.Tensor], out: Dict[str, torch.Tensor]
+        self, batch: Dict[str, torch.Tensor], info: Dict[str, torch.Tensor]
     ) -> None:
-        logits = out["logits"]
+        logits = info["logits"]
         labels = batch["seg"]
-        
+
         for ind in range(labels.shape[0]):
             self.iou(labels[ind], logits[ind])
-
 
     def iou(self, true_image, pred_img, threshold=0.5):
         pred_image_ = np.where(pred_img > threshold, 1, 0)
@@ -61,12 +60,12 @@ class SegmentationEvaluator(BaseEvaluator):
         def calculate_miou(true_image, pred_image):
             pred_image, true_image = torch.tensor(pred_image), torch.tensor(true_image)
             unique_labels = pred_image.shape[0]
-            
+
             for i in range(unique_labels):
                 intersect, union = calculate_iou(pred_image[i], true_image[i])
                 self.total_intersec += intersect
-                self.total_union +=union
-        
+                self.total_union += union
+
         calculate_miou(true_image, pred_image_)
 
     def _get_report(self) -> str:
@@ -76,11 +75,11 @@ class SegmentationEvaluator(BaseEvaluator):
             with open(self.report_path, "w") as handler:
                 handler.write(report)
         return report
-    
+
     def _export(self) -> str:
         report = self._get_report()
         return report
-    
+
     def output(self, results: List[Dict[str, list]]) -> str:
         # preds = reduce(lambda i, r: i + r["preds"], results, [])
         # labels = reduce(lambda i, r: i + r["labels"], results, [])
