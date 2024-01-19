@@ -10,7 +10,7 @@ class ConcatLoss:
         self,
         device: int,
         conf: DictConfig | Dict[str, object] = {},
-        weight: float = -1,
+        weight_scale: float = -1,
     ) -> None:
         self.loss_fns = {}
         conf = OmegaConf.create(conf)

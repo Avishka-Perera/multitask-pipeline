@@ -135,7 +135,10 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
             if type(conf) not in [dict, DictConfig]:
                 return False, f"conf and obj types dose not match. Key: {key_lead}"
             if not are_lists_equal(list(conf.keys()), list(obj.keys())):
-                return False, f"conf and obj have different keys. Key: {key_lead}"
+                return (
+                    False,
+                    f"conf and obj have different keys. Key: {key_lead}. conf keys: {conf.keys()}. obj keys: {obj.keys()}",
+                )
 
             for k, sub_obj in obj.items():
                 lead = f'{key_lead}["{k}"]' if type(k) == str else f"{key_lead}[{k}]"
