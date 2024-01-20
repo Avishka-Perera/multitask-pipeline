@@ -21,7 +21,6 @@ from ..losses import BaseLoss
 from ..evaluators import BaseEvaluator
 from ..learners import BaseLearner
 from ..datasets import BaseDataset, ConcatSet
-from ..constants import analysis_levels
 from ..util.data import ParallelDataLoader
 from ..util import are_lists_equal
 from torch.utils.data import Dataset
@@ -446,7 +445,7 @@ class Trainer:
         rank: int = None,
         world_size: int = 1,
         logger: Logger = None,
-        analysis_level: Literal[*analysis_levels] = 1,
+        analysis_level: int = 1,
     ) -> None:
         if type(conf) == str:
             with open(conf) as handler:

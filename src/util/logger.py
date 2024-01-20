@@ -2,8 +2,6 @@ import numbers
 from torch.utils.tensorboard import SummaryWriter
 import logging
 from .grad_analyzer import GradAnalyzer
-from typing import Literal
-from ..constants import log_levels
 
 
 def verbose_level_local2logging(local):
@@ -15,7 +13,7 @@ def verbose_level_local2logging(local):
 
 
 class Logger:
-    def __init__(self, level: Literal[*log_levels], rank: int = None) -> None:
+    def __init__(self, level: int, rank: int = None) -> None:
         logging.basicConfig(
             level=verbose_level_local2logging(level),
             format="%(asctime)s %(name)s:%(levelname)s: %(message)s",
