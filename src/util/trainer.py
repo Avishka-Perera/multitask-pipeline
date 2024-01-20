@@ -36,6 +36,7 @@ from functools import partial, reduce
 
 def validate_conf(
     conf: omegaconf.OmegaConf,
+    data_dir: str,
     devices: Sequence[int],
     logger: Logger = None,
     validate_datasets=True,
@@ -105,7 +106,7 @@ def validate_conf(
 
     # validate datasets
     if validate_datasets:
-        train_ds, val_ds, test_ds = load_datasets(conf, do_val, do_test)
+        train_ds, val_ds, test_ds = load_datasets(conf, data_dir, do_val, do_test)
         assert len(train_ds) > 0, "The train_ds has length 0"
         assert not do_val or len(val_ds) > 0, "The val_ds has length 0"
         assert not do_test or len(test_ds) > 0, "The test_ds has length 0"
@@ -250,7 +251,7 @@ def validate_conf(
 
 
 def load_datasets(
-    conf: omegaconf.OmegaConf, do_val, do_test
+    conf: omegaconf.OmegaConf, data_dir: str, do_val: bool, do_test: bool
 ) -> Sequence[Dict[str, Dataset]] | Sequence[Dataset]:
     data_conf = conf.data
 
@@ -263,13 +264,21 @@ def load_datasets(
 
     def load_single_dataset(conf):
         dataset_class = load_class(conf.target)
-        train_ds = dataset_class(**dict(conf.params), split=splits[0])
+        params = OmegaConf.to_container(conf.params)
+        if type(params["root"]) == str:
+            params["root"] = os.path.join(data_dir, params["root"])
+        else:
+            assert type(params["root"]) in [list, tuple]
+            for i, v in enumerate(params["root"]):
+                params["root"][i] = os.path.join(data_dir, v)
+
+        train_ds = dataset_class(**params, split=splits[0])
         if do_val:
-            val_ds = dataset_class(**dict(conf.params), split=splits[1])
+            val_ds = dataset_class(**params, split=splits[1])
         else:
             val_ds = None
         if do_test:
-            test_ds = dataset_class(**dict(conf.params), split=splits[2])
+            test_ds = dataset_class(**params, split=splits[2])
         else:
             test_ds = None
 
@@ -294,7 +303,9 @@ class Trainer:
     def _load_datasets(
         self,
     ) -> Sequence[BaseDataset] | BaseDataset:
-        train_ds, val_ds, test_ds = load_datasets(self.conf, self.do_val, self.do_test)
+        train_ds, val_ds, test_ds = load_datasets(
+            self.conf, self.data_dir, self.do_val, self.do_test
+        )
 
         return train_ds, val_ds, test_ds
 
@@ -411,7 +422,12 @@ class Trainer:
             self.logger.info("Not using any scheduler")
 
     def _validate_conf(self):
-        validate_conf(self.conf, self.devices, self.logger)
+        validate_conf(
+            conf=self.conf,
+            data_dir=self.data_dir,
+            devices=self.devices,
+            logger=self.logger,
+        )
 
     def _load_evaluator(self) -> None:
         self.evaluators: Dict[str, BaseEvaluator] = {}
@@ -424,6 +440,7 @@ class Trainer:
     def __init__(
         self,
         conf: str | Dict | omegaconf.dictconfig.DictConfig,
+        data_dir: str,
         weights_conf: Dict[str, str],
         devices: Sequence[str | int],
         rank: int = None,
@@ -441,6 +458,7 @@ class Trainer:
         else:
             raise ValueError("Unexpected type provided for conf")
         self.conf = omegaconf.OmegaConf.create(dict_conf)
+        self.data_dir = data_dir
         self.devices = devices
         self.is_ddp = rank is not None
         self.rank = rank

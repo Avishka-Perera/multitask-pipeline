@@ -49,6 +49,12 @@ def parse_args():
         action="store_true",
     )
     parser.add_argument(
+        "--data-dir",
+        type=str,
+        help="The root folder for datasets",
+        default="datasets",
+    )
+    parser.add_argument(
         "-o",
         "--output-path",
         type=str,
@@ -128,7 +134,8 @@ def main(rank, world_size, args, ddp_port):
     ]
 
     trainer = Trainer(
-        args.config,
+        conf=args.config,
+        data_dir=args.data_dir,
         weights_conf={
             "ckpt_path": args.ckpt_path,
             "ckpt_map_conf_path": args.ckpt_map_conf_path,
