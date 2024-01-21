@@ -39,7 +39,7 @@ class FlowEvaluator(BaseEvaluator):
         self.pred = pred.cpu()
         self.gt = gt.cpu()
 
-        self.epe += torch.norm(torch.Tensor(self.gt) - torch.Tensor(self.pred), p=2).mean()
+        self.epe += np.mean((torch.norm(torch.Tensor(self.gt) - torch.Tensor(self.pred), p=2)).detach().numpy())
         self.sample += gt.shape[0]
 
 
