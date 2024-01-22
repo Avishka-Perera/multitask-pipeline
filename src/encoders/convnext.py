@@ -94,8 +94,6 @@ class ConvNeXt_T(timmConvNeXt):
     def forward(self, x) -> torch.Tensor:
         f6 = self.stem[0](x)
         f5 = self.stem[1](f6)
-        # f5 = self.stem[2](f6)
-        # f5 = self.stem[3](f5)
         f4 = self.stages[0](f5)
         f3 = self.stages[1](f4)
         f2 = self.stages[2](f3)
