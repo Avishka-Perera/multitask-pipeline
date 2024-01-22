@@ -311,15 +311,6 @@ class Trainer:
     def _load_learner(self):
         learner_class = load_class(self.conf.learner.target)
 
-        # map the devices
-        if "local_device_maps" in self.conf.learner.keys():
-            devices = [
-                self.devices[local_id]
-                for local_id in self.conf.learner.local_device_maps
-            ]
-        else:
-            devices = self.devices
-
         # function to correct the devices
         def get_correct_device_lst(devices, device_cnt):
             if len(devices) < device_cnt:
@@ -334,21 +325,29 @@ class Trainer:
                 devices = fix_list_len(devices, device_cnt)
             return devices
 
+        if "params" in self.conf.learner.keys():
+            learner: BaseLearner = learner_class(**dict(self.conf.learner.params))
+        else:
+            learner: BaseLearner = learner_class()
+
+        # map the devices
+        if "local_device_maps" in self.conf.learner.keys():
+            devices = [
+                self.devices[local_id]
+                for local_id in self.conf.learner.local_device_maps
+            ]
+        else:
+            devices = self.devices
         # correct the devices
         devices = get_correct_device_lst(devices, learner_class.device_count)
-
         self.logger.info(f"Learner: using devices: {devices}")
-        if "params" in self.conf.learner.keys():
-            learner: BaseLearner = learner_class(
-                **dict(self.conf.learner.params), devices=devices
-            )
-        else:
-            learner: BaseLearner = learner_class(devices=devices)
 
         if self.is_ddp:
             self.learner = DDP(learner)
+            self.learner.module.set_devices(devices)
         else:
             self.learner = learner
+            self.learner.set_devices(devices)
 
     def _load_states(self, ckpt_path: str, ckpt_map_conf_path: str = None) -> None:
         ckpt = torch.load(ckpt_path)

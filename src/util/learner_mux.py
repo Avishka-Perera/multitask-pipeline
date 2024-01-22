@@ -11,7 +11,6 @@ class LearnerMux(nn.Module):
 
     def __init__(
         self,
-        devices: Sequence[int],
         chldrn: Dict | DictConfig,  # cannot use children
         encoder: Dict | DictConfig,
     ) -> None:
@@ -19,11 +18,13 @@ class LearnerMux(nn.Module):
         encoder = OmegaConf.create(encoder)
         backbone_cls = load_class(encoder.target)
         backbone_params = dict(encoder.params) if "params" in encoder else {}
-        self.encoder = backbone_cls(**backbone_params).cuda(devices[0])
+        self.encoder = backbone_cls(**backbone_params)
         chldrn = OmegaConf.create(chldrn)
+        child_names = []
         for ch_nm, conf in chldrn.items():
+            child_names.append(ch_nm)
             ch_cls = load_class(conf.target)
-            ch_obj: BaseLearner = ch_cls(encoder=self.encoder, devices=devices)
+            ch_obj: BaseLearner = ch_cls(encoder=self.encoder)
             setattr(self, ch_nm, ch_obj)
 
             # fill missing params with default params (full)
@@ -37,6 +38,13 @@ class LearnerMux(nn.Module):
                         conf["in_map"][path_name] = "full"
 
         self.chldrn = chldrn
+        self.child_names = child_names
+
+    def set_devices(self, devices: Sequence[int]) -> None:
+        self.devices = devices
+        for ch_nm in self.child_names:
+            ln = getattr(self, ch_nm)
+            ln.set_devices(devices)
 
     def forward(self, batch):
         out = {}

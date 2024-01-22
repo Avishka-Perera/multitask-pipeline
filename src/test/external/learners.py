@@ -13,7 +13,7 @@ def test(logger: Logger, conf: OmegaConf, devices: Sequence[int]) -> None:
 
             encoder_cls = load_class(ln_conf.encoder.target)
             params = ln_conf.encoder.params if "params" in ln_conf.encoder else ()
-            encoder = encoder_cls(**params).cuda(devices[0])
+            encoder = encoder_cls(**params)
 
             ln_params = ln_conf.learner.params if "params" in ln_conf.learner else {}
             ln_params = {"encoder": encoder, **ln_params}
@@ -23,7 +23,8 @@ def test(logger: Logger, conf: OmegaConf, devices: Sequence[int]) -> None:
             ln_params = ln_conf.learner.params if "params" in ln_conf.learner else {}
 
         learner_cls = load_class(ln_conf.learner.target)
-        learner = learner_cls(**ln_params, devices=devices)
+        learner = learner_cls(**ln_params)
+        learner.set_devices(devices)
 
         batch = make_random_nested_tens(ln_conf.input_conf)
         out = learner(batch=batch)
