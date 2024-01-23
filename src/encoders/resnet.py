@@ -5,14 +5,14 @@ from torchvision.models import resnet50, ResNet50_Weights, resnet18, ResNet18_We
 
 class ResNet50(torch.nn.Module):
     dims = {
-        "f6": 3,
-        "f5": 64,
-        "f4": 256,
-        "f3": 512,
-        "f2": 1024,
-        "f1": 2048,
+        "l6": 3,
+        "l5": 64,
+        "l4": 256,
+        "l3": 512,
+        "l2": 1024,
+        "l1": 2048,
     }
-    pyramid_level_names = ["f6", "f5", "f4", "f3", "f2", "f1"]
+    pyramid_level_names = ["l6", "l5", "l4", "l3", "l2", "l1"]
 
     def __init__(self, drop_out: float = 0):
         super(ResNet50, self).__init__()
@@ -48,19 +48,19 @@ class ResNet50(torch.nn.Module):
         f2 = self.stage4(f3)
         f1 = self.stage5(f2)
         emb = torch.mean(f1, dim=(-2, -1))
-        return {"emb": emb, "f1": f1, "f2": f2, "f3": f3, "f4": f4, "f5": f5}
+        return {"emb": emb, "l1": f1, "l2": f2, "l3": f3, "l4": f4, "l5": f5}
 
 
 class ResNet18(torch.nn.Module):
     dims = {
-        "f6": 3,
-        "f5": 64,
-        "f4": 64,
-        "f3": 128,
-        "f2": 256,
-        "f1": 512,
+        "l6": 3,
+        "l5": 64,
+        "l4": 64,
+        "l3": 128,
+        "l2": 256,
+        "l1": 512,
     }
-    pyramid_level_names = ["f6", "f5", "f4", "f3", "f2", "f1"]
+    pyramid_level_names = ["l6", "l5", "l4", "l3", "l2", "l1"]
 
     def __init__(self, drop_out: float = 0.0):
         super(ResNet18, self).__init__()
@@ -97,4 +97,4 @@ class ResNet18(torch.nn.Module):
         f1 = self.stage5(f2)
         emb = torch.mean(f1, dim=(-2, -1))
 
-        return {"emb": emb, "f5": f5, "f4": f4, "f3": f3, "f2": f2, "f1": f1}
+        return {"emb": emb, "l5": f5, "l4": f4, "l3": f3, "l2": f2, "l1": f1}

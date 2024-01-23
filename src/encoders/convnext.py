@@ -8,15 +8,15 @@ from timm.layers import LayerNorm2d
 class ConvNeXt_T(timmConvNeXt):
     # required attributes for the mt_pipe architecture
     dims = {
-        "f7": 3,
-        "f6": 48,
-        "f5": 48,
-        "f4": 96,
-        "f3": 192,
-        "f2": 384,
-        "f1": 768,
+        "l7": 3,
+        "l6": 48,
+        "l5": 48,
+        "l4": 96,
+        "l3": 192,
+        "l2": 384,
+        "l1": 768,
     }
-    pyramid_level_names = ["f7", "f6", "f5", "f4", "f3", "f2", "f1"]
+    pyramid_level_names = ["l7", "l6", "l5", "l4", "l3", "l2", "l1"]
 
     def __init__(
         self,
@@ -100,12 +100,12 @@ class ConvNeXt_T(timmConvNeXt):
         f1 = self.stages[3](f2)
         emb = torch.mean(f1, dim=(-2, -1))
         return {
-            "f1": f1,
-            "f2": f2,
-            "f3": f3,
-            "f4": f4,
-            "f5": f5,
-            "f6": f6,
+            "l1": f1,
+            "l2": f2,
+            "l3": f3,
+            "l4": f4,
+            "l5": f5,
+            "l6": f6,
             "emb": emb,
         }
 
