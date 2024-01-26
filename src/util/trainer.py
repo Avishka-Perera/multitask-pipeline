@@ -927,10 +927,9 @@ class Trainer:
                 val_loss /= val_batch_count
 
         if self.is_ddp:
+            val_loss = val_loss.detach().cpu()
             dist.all_reduce(val_loss, dist.ReduceOp.SUM)
-            val_loss = (
-                val_loss.detach().cpu().item() / self.world_size
-            )  # since dist.ReduceOp.AVG is not available with the default backend (Gloo)
+            val_loss = val_loss.item() / self.world_size
         else:
             val_loss = val_loss.detach().cpu().item()
 
