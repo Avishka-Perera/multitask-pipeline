@@ -515,6 +515,8 @@ class Trainer:
 
         self.use_amp = use_amp
         self.scaler = GradScaler() if use_amp else None
+        if use_amp:
+            self.logger.info("Using AMP")
 
     def _unpack_losspack_recursive(self, loss_pack, lead=None):
         nm_loss_dict = {}

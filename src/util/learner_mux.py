@@ -24,7 +24,8 @@ class LearnerMux(nn.Module):
         for ch_nm, conf in chldrn.items():
             child_names.append(ch_nm)
             ch_cls = load_class(conf.target)
-            ch_obj: BaseLearner = ch_cls(encoder=self.encoder)
+            params = conf.params if "params" in conf else {}
+            ch_obj: BaseLearner = ch_cls(encoder=self.encoder, **params)
             setattr(self, ch_nm, ch_obj)
 
             # fill missing params with default params (full)
