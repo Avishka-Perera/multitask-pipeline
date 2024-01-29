@@ -4,6 +4,7 @@ from omegaconf import OmegaConf
 from typing import Sequence, Dict, Literal
 import yaml
 from torch.utils.data import Subset, DataLoader
+from torch import autocast
 from tqdm import tqdm
 import pandas as pd
 import omegaconf
@@ -31,6 +32,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 import gc
 from functools import partial, reduce
+from torch.cuda.amp import GradScaler
 
 
 def validate_conf(
@@ -466,6 +468,7 @@ class Trainer:
         devices: Sequence[str | int],
         rank: int = None,
         world_size: int = 1,
+        use_amp: bool = False,
         logger: Logger = None,
         analysis_level: int = 1,
     ) -> None:
@@ -510,6 +513,9 @@ class Trainer:
         )
         self.analysis_level = analysis_level
 
+        self.use_amp = use_amp
+        self.scaler = GradScaler() if use_amp else None
+
     def _unpack_losspack_recursive(self, loss_pack, lead=None):
         nm_loss_dict = {}
         for nm, val in loss_pack.items():
@@ -546,8 +552,13 @@ class Trainer:
         epoch: int,
         batch_id: int,
     ) -> torch.Tensor:
-        info = self.learner(batch)
-        loss_pack = self.val_loss_fn(info, batch)
+        if self.use_amp:
+            with autocast(device_type="cuda", dtype=torch.float16):
+                info = self.learner(batch)
+                loss_pack = self.val_loss_fn(info, batch)
+        else:
+            info = self.learner(batch)
+            loss_pack = self.val_loss_fn(info, batch)
         tot_loss = loss_pack["tot"]
 
         if self.analysis_level > 0 and self.do_out:
@@ -563,11 +574,22 @@ class Trainer:
         batch_count: int,
     ) -> float:
         self.optimizer.zero_grad()
-        info = self.learner(batch)
-        loss_pack = self.train_loss_fn(info, batch)
-        tot_loss = loss_pack["tot"]
-        tot_loss.backward()
-        self.optimizer.step()
+
+        if self.use_amp:
+            with autocast(device_type="cuda", dtype=torch.float16):
+                info = self.learner(batch)
+                loss_pack = self.train_loss_fn(info, batch)
+            tot_loss = loss_pack["tot"]
+            self.scaler.scale(tot_loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            info = self.learner(batch)
+            loss_pack = self.train_loss_fn(info, batch)
+            tot_loss = loss_pack["tot"]
+            tot_loss.backward()
+            self.optimizer.step()
+
         if self.lr_scheduler:
             self.lr_scheduler.step(epoch + (batch_id + 1) / batch_count)
 
@@ -948,7 +970,12 @@ class Trainer:
 
                 results = {nm: [] for nm in self.evaluators.keys()}
                 for batch in test_dl:
-                    info = self.learner(batch)
+                    if self.use_amp:
+                        with autocast(device_type="cuda", dtype=torch.float16):
+                            info = self.learner(batch)
+                    else:
+                        info = self.learner(batch)
+
                     for nm, eval in self.evaluators.items():
                         results[nm].append(eval.process_batch(batch=batch, info=info))
                     pbar.update()

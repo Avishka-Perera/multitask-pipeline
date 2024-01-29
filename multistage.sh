@@ -10,8 +10,9 @@ mock_epoch_count=""
 run_name=""
 replica_size=2
 analysis_level=1
+use_amp=0
 
-args=$(getopt -o c:t:o:d:r:a: --long confs:,trans:,output-path:,device:,replica-size:,analysis-level:,mock-batch-count:,mock-epoch-count:,run-name: -n "$0" -- "$@")
+args=$(getopt -o c:t:o:d:r:a: --long confs:,trans:,output-path:,device:,replica-size:,use-amp:,analysis-level:,mock-batch-count:,mock-epoch-count:,run-name: -n "$0" -- "$@")
 
 # Flag variables to track which list is being processed
 in_confs=false
@@ -38,6 +39,11 @@ while [[ $# -gt 0 ]]; do
     -r|--replica-size)
         shift
         replica_size="$1"
+        shift
+        ;;
+    --use-amp)
+        shift
+        use_amp="$1"
         shift
         ;;
     -a|--analysis-level)
@@ -83,7 +89,6 @@ if [ ${#trans[@]} -gt $length ]; then
     length=${#trans[@]}
 fi
 
-
 if [ -z "$mock_batch_count" ] && [ -z "$mock_epoch_count" ]; then
     echo "Validating configurations"
     
@@ -114,6 +119,9 @@ if [ -z "$mock_batch_count" ] && [ -z "$mock_epoch_count" ]; then
         fi
         if [ -n "$replica_size" ]; then
             options+=("-r" "$replica_size")
+        fi
+        if [ -n "$use_amp" ] && [ "$use_amp" -ne 0 ]; then
+            options+=("--use-amp")
         fi
         if [ -n "$analysis_level" ]; then
             options+=("-a" "$analysis_level")
@@ -181,6 +189,14 @@ for ((i = 0; i < length; i++)); do
     fi
     if [ -n "$replica_size" ]; then
         options+=("-r" "$replica_size")
+    fi
+    # if [ -n "$use_amp" ]; then
+    #     if [ $use_amp -ne 0 ]; then
+    #         options+=("--use-amp")
+    #     fi
+    # fi
+    if [ -n "$use_amp" ] && [ "$use_amp" -ne 0 ]; then
+        options+=("--use-amp")
     fi
     if [ -n "$analysis_level" ]; then
         options+=("-a" "$analysis_level")
