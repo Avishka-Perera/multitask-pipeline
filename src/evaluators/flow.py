@@ -34,14 +34,17 @@ class FlowEvaluator(BaseEvaluator):
     def process_batch(
         self, batch: Dict[str, torch.Tensor], info: Dict[str, torch.Tensor]
     ) -> Dict[str, list]:
-        pred = info["flow_fwd"]['f7']
+        pred = info["flow_fwd"]["l7"]
         gt = batch["flow_map"]
         self.pred = pred.cpu()
         self.gt = gt.cpu()
 
-        self.epe += np.mean((torch.norm(torch.Tensor(self.gt) - torch.Tensor(self.pred), p=2)).detach().numpy())
+        self.epe += np.mean(
+            (torch.norm(torch.Tensor(self.gt) - torch.Tensor(self.pred), p=2))
+            .detach()
+            .numpy()
+        )
         self.sample += gt.shape[0]
-
 
     def _get_report(self) -> str:
         acc = self.epe / self.sample
