@@ -23,6 +23,7 @@ class Logger:
         self.display_info = self.logger.level != 0
         self.plotter = None
         self.data = {}
+        self.iteration = 0
 
     # logging
     def _format(self, txt: str) -> str:
@@ -75,6 +76,10 @@ class Logger:
         card_name = card_name.replace("/", "_")
         card = f"{category}/{card_name}"
         self._plot_to_tb(card, val, glob_step)
+        
+    def plot_loss_pack(self, card_name: str, loss_pack):
+        self.plotter.add_scalars(card_name, loss_pack, self.iteration)
+        self.iteration += 1
 
     def _accumulate(self, card, y):
         if self._is_valid(y):

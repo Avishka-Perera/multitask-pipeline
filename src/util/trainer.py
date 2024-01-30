@@ -498,15 +498,19 @@ class Trainer:
                 nm_loss_dict = {**nm_loss_dict, **nested_dict}
         return nm_loss_dict
 
-    def _plot_loss_bacth(
+    def _plot_loss_batch(
         self,
         loss_pack: Dict[str, torch.Tensor],
         stage: Literal["Train", "Val"],
         batch_id,
         epoch,
     ) -> None:
-        card_nm_plt = f"EPOCH: {epoch}"
+        card_nm_plt = f"Multi_Task_Losses/{stage}"
         loss_pack = self._unpack_losspack_recursive(loss_pack)
+
+        self.logger.plot_loss_pack(card_nm_plt, loss_pack)
+
+        '''
         for nm, loss in loss_pack.items():
             if loss is not None:
                 loss = loss.cpu().item()
@@ -515,6 +519,8 @@ class Trainer:
                 card_nm_acc = nm
                 self.logger.plot(cat_plt, card_nm_plt, loss, batch_id)
                 self.logger.accumulate(cat_acc, card_nm_acc, loss)
+
+        '''
 
     def val_step(
         self,
@@ -527,7 +533,7 @@ class Trainer:
         tot_loss = loss_pack["tot"]
 
         if self.analysis_level > 0 and self.do_out:
-            self._plot_loss_bacth(loss_pack, "Val", batch_id, epoch)
+            self._plot_loss_batch(loss_pack, "Val", batch_id, epoch)
 
         return tot_loss
 
@@ -549,7 +555,7 @@ class Trainer:
 
         if self.analysis_level > 0 and self.do_out:
             self.logger.batch_step(analyze_grads=self.analysis_level > 1)
-            self._plot_loss_bacth(loss_pack, "Train", batch_id, epoch)
+            self._plot_loss_batch(loss_pack, "Train", batch_id, epoch)
 
         tot_loss = tot_loss.detach().cpu().item()
         return tot_loss
