@@ -41,11 +41,16 @@ class LearnerMux(nn.Module):
         self.chldrn = chldrn
         self.child_names = child_names
 
-    def set_devices(self, devices: Sequence[int]) -> None:
+    def set_devices(self, devices: Sequence[int] | Dict[str, Sequence[int]]) -> None:
         self.devices = devices
-        for ch_nm in self.child_names:
-            ln = getattr(self, ch_nm)
-            ln.set_devices(devices)
+        if type(devices) == dict:
+            for ch_nm, dvs in devices.items():
+                ln = getattr(self, ch_nm)
+                ln.set_devices(dvs)
+        else:
+            for ch_nm in self.child_names:
+                ln = getattr(self, ch_nm)
+                ln.set_devices(devices)
 
     def forward(self, batch):
         out = {}

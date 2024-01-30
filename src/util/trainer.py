@@ -1,6 +1,7 @@
 import torch
 import os, shutil
 from omegaconf import OmegaConf
+from omegaconf.listconfig import ListConfig
 from typing import Sequence, Dict, Literal
 import yaml
 from torch.utils.data import Subset, DataLoader
@@ -347,14 +348,44 @@ class Trainer:
 
         # map the devices
         if "local_device_maps" in self.conf.learner.keys():
-            devices = [
-                self.devices[local_id]
-                for local_id in self.conf.learner.local_device_maps
-            ]
+
+            def map_devices(local_device_maps, device_count):
+                devices = [self.devices[local_id] for local_id in local_device_maps]
+                # correct the devices
+                devices = get_correct_device_lst(devices, device_count)
+                return devices
+
+            if type(self.conf.learner.local_device_maps) == ListConfig:
+                devices = map_devices(
+                    self.conf.learner.local_device_maps, learner_class.device_count
+                )
+            else:
+                if (
+                    self.conf.learner.target
+                    != "mt_pipe.src.util.learner_mux.LearnerMux"
+                ):
+                    raise ValueError(
+                        "If not using 'mt_pipe.src.util.learner_mux.LearnerMux', local_device_maps must be an integer list"
+                    )
+                if not are_lists_equal(
+                    list(self.conf.learner.local_device_maps.keys()),
+                    list(self.conf.learner.params.chldrn.keys()),
+                ):
+                    raise ValueError(
+                        "When local_device_maps are specified, 'conf.learner.local_device_maps' and 'conf.learner.params.chldrn' must have the same keys."
+                    )
+
+                devices = {}
+                for k in self.conf.learner.local_device_maps.keys():
+                    ch_ln_cls = load_class(self.conf.learner.params.chldrn[k].target)
+                    device_count = ch_ln_cls.device_count
+                    ch_devices = map_devices(
+                        self.conf.learner.local_device_maps[k], device_count
+                    )
+                    devices[k] = ch_devices
         else:
             devices = self.devices
-        # correct the devices
-        devices = get_correct_device_lst(devices, learner_class.device_count)
+            devices = get_correct_device_lst(devices, learner_class.device_count)
         self.logger.info(f"Learner: using devices: {devices}")
 
         if self.is_ddp:
@@ -392,10 +423,23 @@ class Trainer:
 
                 # map devices
                 if "local_device_maps" in loss_conf.keys():
-                    device = [
-                        self.devices[local_id]
-                        for local_id in loss_conf.local_device_maps
-                    ][-1]
+                    if type(loss_conf.local_device_maps) == ListConfig:
+                        device = self.devices[loss_conf.local_device_maps]
+                    else:
+                        if loss_conf.target != "mt_pipe.src.losses.ConcatLoss":
+                            raise ValueError(
+                                "If not using 'mt_pipe.src.losses.ConcatLoss', local_device_maps must be an integer list"
+                            )
+                        if not are_lists_equal(
+                            list(loss_conf.local_device_maps.keys()),
+                            list(self.conf.loss.params.conf.keys()),
+                        ):
+                            raise ValueError(
+                                "When local_device_maps are specified, 'conf.loss.local_device_maps' and 'conf.loss.params.conf' must have the same keys."
+                            )
+                        device = {}
+                        for k in loss_conf.local_device_maps.keys():
+                            device[k] = self.devices[loss_conf.local_device_maps[k]]
                 else:
                     device = self.devices[-1]
 
