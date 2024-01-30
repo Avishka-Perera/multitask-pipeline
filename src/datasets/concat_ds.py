@@ -54,6 +54,8 @@ class ConcatSet(Dataset):
                 )
             if len(class_splits) == 1:
                 component_dataset = class_splits[0]
+            elif len(class_splits) == 0:
+                continue
             else:
                 component_dataset = ConcatDataset(class_splits)
             component_datasets.append(component_dataset)
