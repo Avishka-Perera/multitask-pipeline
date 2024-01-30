@@ -228,7 +228,7 @@ def validate_conf(
     # start validate the train configurations
     if do_train:
         train_required_keys = ["loader_params", "epochs"]
-        train_possible_keys = train_required_keys + ["tollerance"]
+        train_possible_keys = train_required_keys + ["tollerance", "visualizers"]
         validate_keys(
             conf.train.keys(),
             train_required_keys,
@@ -504,6 +504,14 @@ class Trainer:
                 params = dict(eval_conf.params) if "params" in eval_conf else {}
                 self.evaluators[eval_nm] = eval_class(**params)
 
+    def _load_visualizer(self) -> None:
+        self.visualizers: Dict[str, BaseEvaluator] = {}
+        if self.do_train:
+            for visu_nm, visu_conf in self.conf.train.visualizers.items():
+                visu_class = load_class(visu_conf.target)
+                params = dict(visu_conf.params) if "params" in visu_conf else {}
+                self.visualizers[visu_nm] = visu_class(logger=self.logger, **params)
+
     def __init__(
         self,
         conf: str | Dict | omegaconf.dictconfig.DictConfig,
@@ -549,6 +557,7 @@ class Trainer:
             )
         self._load_loss()
         self._load_evaluator()
+        self._load_visualizer()
         self._load_training_objects()
         self.ckpts = (
             {ckpt.epoch: ckpt.name for ckpt in self.conf.checkpoints}
@@ -644,7 +653,7 @@ class Trainer:
             self._plot_loss_bacth(loss_pack, "Train", batch_id, epoch)
 
         tot_loss = tot_loss.detach().cpu().item()
-        return tot_loss
+        return tot_loss, info
 
     def _save_ckpt(self, epoch, output_path, status, history=None):
         # checkpoints
@@ -945,7 +954,7 @@ class Trainer:
 
             def process_batch(batch, batch_id):
                 self.optimizer.zero_grad()
-                train_loss = self.train_step(batch, epoch, batch_id, train_batch_count)
+                train_loss, info = self.train_step(batch, epoch, batch_id, train_batch_count)
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
@@ -955,6 +964,9 @@ class Trainer:
                         train_loss,
                         batch_id,
                     )
+                    if batch_id == train_batch_count-1 and self.visualizers is not None:
+                        for nm, visu in self.visualizers.items():
+                            visu.process_batch(info, batch, epoch)
                 train_losses.append(train_loss)
 
             for batch_id, batch in enumerate(train_dl):
