@@ -464,9 +464,12 @@ class Trainer:
         if self.do_train:
             if "optimizer" in self.conf:
                 optim_class = load_class(self.conf.optimizer.target)
-                self.optimizer = optim_class(
-                    self.learner.parameters(), **dict(self.conf.optimizer.params)
+                params = (
+                    dict(self.conf.optimizer.params)
+                    if "params" in self.conf.optimizer
+                    else {}
                 )
+                self.optimizer = optim_class(self.learner.parameters(), **params)
             else:
                 self.optimizer = Adam(self.learner.parameters())
             self.logger.info(f"Using optimizer {self.optimizer.__class__.__name__}")
@@ -506,7 +509,7 @@ class Trainer:
 
     def _load_visualizer(self) -> None:
         self.visualizers: Dict[str, BaseEvaluator] = {}
-        if self.do_train:
+        if "visualizers" in self.conf.train and self.do_train:
             for visu_nm, visu_conf in self.conf.train.visualizers.items():
                 visu_class = load_class(visu_conf.target)
                 params = dict(visu_conf.params) if "params" in visu_conf else {}
@@ -610,10 +613,10 @@ class Trainer:
         if self.use_amp:
             with autocast(device_type="cuda", dtype=torch.float16):
                 info = self.learner(batch)
-                loss_pack = self.val_loss_fn(info, batch)
+                loss_pack = self.val_loss_fn(info=info, batch=batch)
         else:
             info = self.learner(batch)
-            loss_pack = self.val_loss_fn(info, batch)
+            loss_pack = self.val_loss_fn(info=info, batch=batch)
         tot_loss = loss_pack["tot"]
 
         if self.analysis_level > 0 and self.do_out:
@@ -633,14 +636,14 @@ class Trainer:
         if self.use_amp:
             with autocast(device_type="cuda", dtype=torch.float16):
                 info = self.learner(batch)
-                loss_pack = self.train_loss_fn(info, batch)
+                loss_pack = self.train_loss_fn(info=info, batch=batch)
             tot_loss = loss_pack["tot"]
             self.scaler.scale(tot_loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
             info = self.learner(batch)
-            loss_pack = self.train_loss_fn(info, batch)
+            loss_pack = self.train_loss_fn(info=info, batch=batch)
             tot_loss = loss_pack["tot"]
             tot_loss.backward()
             self.optimizer.step()
@@ -954,7 +957,9 @@ class Trainer:
 
             def process_batch(batch, batch_id):
                 self.optimizer.zero_grad()
-                train_loss, info = self.train_step(batch, epoch, batch_id, train_batch_count)
+                train_loss, info = self.train_step(
+                    batch, epoch, batch_id, train_batch_count
+                )
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
@@ -964,7 +969,10 @@ class Trainer:
                         train_loss,
                         batch_id,
                     )
-                    if batch_id == train_batch_count-1 and self.visualizers is not None:
+                    if (
+                        batch_id == train_batch_count - 1
+                        and self.visualizers is not None
+                    ):
                         for nm, visu in self.visualizers.items():
                             visu.process_batch(info, batch, epoch)
                 train_losses.append(train_loss)
