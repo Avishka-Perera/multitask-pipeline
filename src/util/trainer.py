@@ -157,11 +157,6 @@ def validate_conf(
                 loss_possible_keys,
                 loss_conf_name,
             )
-            if "local_device_maps" in loss_conf.keys():
-                if len(loss_conf.local_device_maps) > len(devices):
-                    raise AttributeError(
-                        f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{loss_conf_name}.local_device_maps'({len(loss_conf.local_device_maps)})"
-                    )
 
         if "target" in (conf.loss):
             validate_loss_conf(conf.loss, "conf.loss")
@@ -188,21 +183,18 @@ def validate_conf(
                 for nm, loss_conf in conf.loss.items():
                     validate_loss_conf(loss_conf, f"conf.loss.{nm}")
 
-        ## start validate loss device_maps
-        def validate_loss_devices(loss_conf, name):
-            if "local_device_maps" in loss_conf.keys():
-                if len(loss_conf.local_device_maps) > len(devices):
-                    raise AttributeError(
-                        f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{name}.local_device_maps'({len(loss_conf.local_device_maps)})"
-                    )
-
-        if type(conf.loss) == omegaconf.dictconfig.DictConfig:
-            validate_loss_devices(conf.loss, "conf.loss")
-        else:
-            for i, loss_conf in enumerate(conf.loss):
-                validate_loss_devices(loss_conf, f"conf.loss[{i}]")
-        ## end validate loss device_maps
-        # end validate the loss configurations
+        # validate loss device_maps
+        # TODO: validate in the case of ConcatLoss
+        # if "local_device_maps" in conf.loss.keys():
+        #     if type(conf.loss.local_device_maps) == DictConfig:
+        #         if conf.loss.target != "mt_pipe.src.losses.ConcatLoss":
+        #             raise AttributeError(f"local_device_maps can be a ")
+        #         # if not are_lists_equal(list(conf.loss.local_device_maps.keys()), list())
+        #     else:
+        #         if type(conf.loss.local_device_maps) != int:
+        #             raise AttributeError(
+        #                 f"Specification of type 'int' expected. Found '{type(conf.loss.local_device_maps)}'. Key: 'conf.loss.local_device_maps'"
+        #             )
 
         # validate the optimizer configurations
         optimizer_required_keys = ["target"]
@@ -423,12 +415,12 @@ class Trainer:
 
                 # map devices
                 if "local_device_maps" in loss_conf.keys():
-                    if type(loss_conf.local_device_maps) == ListConfig:
+                    if type(loss_conf.local_device_maps) == int:
                         device = self.devices[loss_conf.local_device_maps]
                     else:
                         if loss_conf.target != "mt_pipe.src.losses.ConcatLoss":
                             raise ValueError(
-                                "If not using 'mt_pipe.src.losses.ConcatLoss', local_device_maps must be an integer list"
+                                "If not using 'mt_pipe.src.losses.ConcatLoss', local_device_maps must be an integer"
                             )
                         if not are_lists_equal(
                             list(loss_conf.local_device_maps.keys()),
@@ -598,7 +590,7 @@ class Trainer:
 
         self.logger.plot_loss_pack(card_nm_plt, loss_pack)
 
-        '''
+        """
         for nm, loss in loss_pack.items():
             if loss is not None:
                 loss = loss.cpu().item()
@@ -608,7 +600,7 @@ class Trainer:
                 self.logger.plot(cat_plt, card_nm_plt, loss, batch_id)
                 self.logger.accumulate(cat_acc, card_nm_acc, loss)
 
-        '''
+        """
 
     def val_step(
         self,

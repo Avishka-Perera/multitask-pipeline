@@ -15,7 +15,8 @@ class ConcatLoss:
         self.loss_fns = {}
         conf = OmegaConf.create(conf)
         self.conf = conf
-        self.device = device
+        self.devices = device
+        self.device = tuple(device.values())[0]
         for name, value in conf.items():
             if type(value) == DictConfig:
                 loss_class = load_class(value.target)
