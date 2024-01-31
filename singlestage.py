@@ -37,6 +37,12 @@ def parse_args():
         default=2,
     )
     parser.add_argument(
+        "--use-amp",
+        help="Whether or not to use Automatic Mixed Precision",
+        default=False,
+        action="store_true",
+    )
+    parser.add_argument(
         "--resume-dir",
         type=str,
         help="The directory to resume training",
@@ -143,6 +149,7 @@ def main(rank, world_size, args, ddp_port):
         devices=devices,
         rank=rank,
         world_size=world_size,
+        use_amp=args.use_amp,
         logger=logger,
         analysis_level=args.analysis_level,
     )

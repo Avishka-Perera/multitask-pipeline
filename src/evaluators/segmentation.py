@@ -45,9 +45,13 @@ class SegmentationEvaluator(BaseEvaluator):
     ) -> None:
         logits = info["logits"]
         labels = batch["seg"]
-
+        total_intersec, total_union = [], []
         for ind in range(labels.shape[0]):
-            self.iou(labels[ind], logits[ind])
+            intersect, union = self.iou(labels[ind], logits[ind])
+            total_intersec += intersect
+            total_union += union
+        return {"total_intersec":total_intersec, "total_union":total_union}
+
 
     def iou(self, true_image, pred_img, threshold=0.5):
         pred_image_ = np.where(pred_img > threshold, 1, 0)
@@ -60,29 +64,27 @@ class SegmentationEvaluator(BaseEvaluator):
         def calculate_miou(true_image, pred_image):
             pred_image, true_image = torch.tensor(pred_image), torch.tensor(true_image)
             unique_labels = pred_image.shape[0]
+            total_intersec = []
+            total_union = []
 
             for i in range(unique_labels):
                 intersect, union = calculate_iou(pred_image[i], true_image[i])
-                self.total_intersec += intersect
-                self.total_union += union
-
-        calculate_miou(true_image, pred_image_)
+                total_intersec += [intersect]
+                total_union += [union]
+            return total_intersec, total_union
+        return calculate_miou(true_image, pred_image_)
 
     def _get_report(self) -> str:
-        acc = self.total_intersec / self.total_union
+        acc = np.array(self.total_intersec).mean() / np.array(self.total_union).mean()
         report = f"Accuracy: {acc}"
         if self.save_to_disk:
             with open(self.report_path, "w") as handler:
                 handler.write(report)
         return report
 
-    def _export(self) -> str:
-        report = self._get_report()
-        return report
-
     def output(self, results: List[Dict[str, list]]) -> str:
-        # preds = reduce(lambda i, r: i + r["preds"], results, [])
-        # labels = reduce(lambda i, r: i + r["labels"], results, [])
-        # self.preds = preds
-        # self.labels = labels
-        self._export()
+        total_intersec = reduce(lambda i, r: i + r["total_intersec"], results, [])
+        total_union = reduce(lambda i, r: i + r["total_union"], results, [])
+        self.total_intersec = total_intersec
+        self.total_union = total_union
+        self._get_report()
