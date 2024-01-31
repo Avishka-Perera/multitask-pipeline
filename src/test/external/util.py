@@ -91,15 +91,29 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
 
                 elif type(obj) in [int, float]:
                     if "dtype" in conf:
-                        if "min" in conf and conf["min"] > obj.min():
-                            return (
-                                False,
-                                f"Invalid minimum. Key: {key_lead}. Expected: {conf['min']}, Found: {obj.min()}",
+                        if "min" in conf and (
+                            (type(obj) in [int, float] and conf["min"] > obj)
+                            or (
+                                (
+                                    type(obj) not in [int, float]
+                                    and conf["min"] > obj.min()
+                                )
                             )
-                        if "max" in conf and conf["max"] < obj.max():
+                        ):
                             return (
                                 False,
-                                f"Invalid maximum. Key: {key_lead}. Expected: {conf['max']}, Found: {obj.max()}",
+                                f"Invalid minimum. Key: {key_lead}. Expected: {conf['min']}, Found: {obj if type(obj) in [float, int] else obj.min()}",
+                            )
+                        if "max" in conf and (
+                            (type(obj) in [int, float] and conf["max"] < obj)
+                            or (
+                                type(obj) not in [int, float]
+                                and conf["max"] < obj.max()
+                            )
+                        ):
+                            return (
+                                False,
+                                f"Invalid maximum. Key: {key_lead}. Expected: {conf['max']}, Found: {obj if type(obj) in [float, int] else obj.max()}",
                             )
                         return True, "Valid"
                     else:

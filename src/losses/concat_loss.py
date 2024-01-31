@@ -15,16 +15,15 @@ class ConcatLoss:
         self.loss_fns = {}
         conf = OmegaConf.create(conf)
         self.conf = conf
-        first_val = tuple(conf.values())[0]
-        if type(first_val) == DictConfig:
-            self.device = device
-        else:
-            self.device = first_val.device
+        self.device = device
         for name, value in conf.items():
             if type(value) == DictConfig:
                 loss_class = load_class(value.target)
                 loss_params = dict(value.params) if "params" in value else {}
-                loss_fn = loss_class(device=device, **loss_params)
+                loss_fn = loss_class(
+                    device=device if type(device) == int else device[name],
+                    **loss_params
+                )
             else:
                 loss_fn = value
             self.loss_fns[name] = loss_fn

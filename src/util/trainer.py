@@ -1,9 +1,11 @@
 import torch
 import os, shutil
 from omegaconf import OmegaConf
+from omegaconf.listconfig import ListConfig
 from typing import Sequence, Dict, Literal
 import yaml
 from torch.utils.data import Subset, DataLoader
+from torch import autocast
 from tqdm import tqdm
 import pandas as pd
 import omegaconf
@@ -31,6 +33,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 import gc
 from functools import partial, reduce
+from torch.cuda.amp import GradScaler
 
 
 def validate_conf(
@@ -40,6 +43,7 @@ def validate_conf(
     logger: Logger = None,
     validate_datasets=True,
 ) -> None:
+    do_train = "train" in conf.keys()
     do_val = "val" in conf.keys()
     do_test = "test" in conf.keys()
 
@@ -48,17 +52,25 @@ def validate_conf(
         "name",
         "data",
         "learner",
-        "loss",
-        "optimizer",
-        "train",
     ]
     root_possible_keys = root_required_keys + [
+        "loss",
+        "optimizer",
         "lr_scheduler",
+        "train",
         "val",
         "test",
         "checkpoints",
     ]
     validate_keys(conf.keys(), root_required_keys, root_possible_keys, "conf")
+    if do_val and not do_train:
+        raise AttributeError(
+            "If 'val' configuration is defined, 'train' must also be defined"
+        )
+    if do_train and any([k not in conf.keys() for k in ["loss", "optimizer"]]):
+        raise AttributeError(
+            "'loss' and 'optimizer' must be defined if 'train' is defined"
+        )
 
     # start validate the data configurations
     def validate_single_datapath(data_conf, nm):
@@ -131,73 +143,76 @@ def validate_conf(
                 f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of 'conf.learner.local_device_maps'({len(conf.learner.local_device_maps)})"
             )
 
-    # start validate the loss configurations
-    loss_required_keys = ["target"]
-    loss_possible_keys = loss_required_keys + ["params", "local_device_maps"]
+    if do_train:
+        # start validate the loss configurations
+        loss_required_keys = ["target"]
+        loss_possible_keys = loss_required_keys + ["params", "local_device_maps"]
 
-    def validate_loss_conf(
-        loss_conf: omegaconf.dictconfig.DictConfig, loss_conf_name: str
-    ) -> None:
-        validate_keys(
-            loss_conf.keys(),
-            loss_required_keys,
-            loss_possible_keys,
-            loss_conf_name,
-        )
-        if "local_device_maps" in loss_conf.keys():
-            if len(loss_conf.local_device_maps) > len(devices):
-                raise AttributeError(
-                    f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{loss_conf_name}.local_device_maps'({len(loss_conf.local_device_maps)})"
-                )
+        def validate_loss_conf(
+            loss_conf: omegaconf.dictconfig.DictConfig, loss_conf_name: str
+        ) -> None:
+            validate_keys(
+                loss_conf.keys(),
+                loss_required_keys,
+                loss_possible_keys,
+                loss_conf_name,
+            )
+            if "local_device_maps" in loss_conf.keys():
+                if len(loss_conf.local_device_maps) > len(devices):
+                    raise AttributeError(
+                        f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{loss_conf_name}.local_device_maps'({len(loss_conf.local_device_maps)})"
+                    )
 
-    if "target" in (conf.loss):
-        validate_loss_conf(conf.loss, "conf.loss")
-    else:
-        if type(conf.loss) == omegaconf.listconfig.ListConfig:
-            availabe_losses = []
-            for i, loss_conf in enumerate(conf.loss):
-                validate_loss_conf(loss_conf, f"conf.loss[{i}]")
-                if loss_conf.target in availabe_losses:
-                    raise ValueError(f"Same error cannot be repeated multiple times")
-                availabe_losses.append(loss_conf.target)
+        if "target" in (conf.loss):
+            validate_loss_conf(conf.loss, "conf.loss")
         else:
-            loss_names = list(conf.loss.keys())
-            if "loss" in conf.train:
-                assert all(
-                    [nm in loss_names for nm in conf.train.loss]
-                ), "'conf.train.loss' must only specify losses defined at 'conf.loss'"
-            if "val" in conf and "loss" in conf.val:
-                assert all(
-                    [nm in loss_names for nm in conf.val.loss]
-                ), "'conf.val.loss' must only specify losses defined at 'conf.loss'"
-            for nm, loss_conf in conf.loss.items():
-                validate_loss_conf(loss_conf, f"conf.loss.{nm}")
+            if type(conf.loss) == omegaconf.listconfig.ListConfig:
+                availabe_losses = []
+                for i, loss_conf in enumerate(conf.loss):
+                    validate_loss_conf(loss_conf, f"conf.loss[{i}]")
+                    if loss_conf.target in availabe_losses:
+                        raise ValueError(
+                            f"Same error cannot be repeated multiple times"
+                        )
+                    availabe_losses.append(loss_conf.target)
+            else:
+                loss_names = list(conf.loss.keys())
+                if "loss" in conf.train:
+                    assert all(
+                        [nm in loss_names for nm in conf.train.loss]
+                    ), "'conf.train.loss' must only specify losses defined at 'conf.loss'"
+                if "val" in conf and "loss" in conf.val:
+                    assert all(
+                        [nm in loss_names for nm in conf.val.loss]
+                    ), "'conf.val.loss' must only specify losses defined at 'conf.loss'"
+                for nm, loss_conf in conf.loss.items():
+                    validate_loss_conf(loss_conf, f"conf.loss.{nm}")
 
-    ## start validate loss device_maps
-    def validate_loss_devices(loss_conf, name):
-        if "local_device_maps" in loss_conf.keys():
-            if len(loss_conf.local_device_maps) > len(devices):
-                raise AttributeError(
-                    f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{name}.local_device_maps'({len(loss_conf.local_device_maps)})"
-                )
+        ## start validate loss device_maps
+        def validate_loss_devices(loss_conf, name):
+            if "local_device_maps" in loss_conf.keys():
+                if len(loss_conf.local_device_maps) > len(devices):
+                    raise AttributeError(
+                        f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of '{name}.local_device_maps'({len(loss_conf.local_device_maps)})"
+                    )
 
-    if type(conf.loss) == omegaconf.dictconfig.DictConfig:
-        validate_loss_devices(conf.loss, "conf.loss")
-    else:
-        for i, loss_conf in enumerate(conf.loss):
-            validate_loss_devices(loss_conf, f"conf.loss[{i}]")
-    ## end validate loss device_maps
-    # end validate the loss configurations
+        if type(conf.loss) == omegaconf.dictconfig.DictConfig:
+            validate_loss_devices(conf.loss, "conf.loss")
+        else:
+            for i, loss_conf in enumerate(conf.loss):
+                validate_loss_devices(loss_conf, f"conf.loss[{i}]")
+        ## end validate loss device_maps
+        # end validate the loss configurations
 
-    # validate the optimizer configurations
-    optimizer_required_keys = ["target"]
-    optimizer_possible_keys = optimizer_required_keys + ["params"]
-    validate_keys(
-        conf.optimizer.keys(),
-        optimizer_required_keys,
-        optimizer_possible_keys,
-        "conf.optimizer",
-    )
+        # validate the optimizer configurations
+        optimizer_required_keys = ["target"]
+        optimizer_possible_keys = optimizer_required_keys + ["params"]
+        validate_keys(
+            conf.optimizer.keys(),
+            optimizer_required_keys,
+            optimizer_possible_keys,
+            "conf.optimizer",
+        )
 
     # validate the lr_scheduler configurations
     if "lr_scheduler" in conf.keys():
@@ -211,23 +226,24 @@ def validate_conf(
         )
 
     # start validate the train configurations
-    train_required_keys = ["loader_params", "epochs"]
-    train_possible_keys = train_required_keys + ["tollerance"]
-    validate_keys(
-        conf.train.keys(),
-        train_required_keys,
-        train_possible_keys,
-        "conf.train",
-    )
-    # validate that the datapaths are the same as defined in the data definition
-    if "target" not in conf.data:
-        assert are_lists_equal(
-            list(conf.data.keys()), list(conf.train.loader_params.keys())
-        ), "Keys in conf.train.loader_params must be the same as the keys in conf.data"
+    if do_train:
+        train_required_keys = ["loader_params", "epochs"]
+        train_possible_keys = train_required_keys + ["tollerance", "visualizers"]
+        validate_keys(
+            conf.train.keys(),
+            train_required_keys,
+            train_possible_keys,
+            "conf.train",
+        )
+        # validate that the datapaths are the same as defined in the data definition
+        if "target" not in conf.data:
+            assert are_lists_equal(
+                list(conf.data.keys()), list(conf.train.loader_params.keys())
+            ), "Keys in conf.train.loader_params must be the same as the keys in conf.data"
     # end validate the train configurations
 
     # start validate the val configurations
-    if "val" in conf.keys():
+    if do_val:
         val_required_keys = ["loader_params"]
         val_possible_keys = val_required_keys + ["loss"]
         validate_keys(
@@ -236,11 +252,11 @@ def validate_conf(
             val_possible_keys,
             "conf.val",
         )
-    # validate that the datapaths are the same as defined in the data definition
-    if "target" not in conf.data:
-        assert are_lists_equal(
-            list(conf.data.keys()), list(conf.val.loader_params.keys())
-        ), "Keys in conf.val.loader_params must be the same as the keys in conf.data"
+        # validate that the datapaths are the same as defined in the data definition
+        if "target" not in conf.data:
+            assert are_lists_equal(
+                list(conf.data.keys()), list(conf.val.loader_params.keys())
+            ), "Keys in conf.val.loader_params must be the same as the keys in conf.data"
     # end validate the val configurations
 
     # TODO: validate the test configuration
@@ -332,14 +348,44 @@ class Trainer:
 
         # map the devices
         if "local_device_maps" in self.conf.learner.keys():
-            devices = [
-                self.devices[local_id]
-                for local_id in self.conf.learner.local_device_maps
-            ]
+
+            def map_devices(local_device_maps, device_count):
+                devices = [self.devices[local_id] for local_id in local_device_maps]
+                # correct the devices
+                devices = get_correct_device_lst(devices, device_count)
+                return devices
+
+            if type(self.conf.learner.local_device_maps) == ListConfig:
+                devices = map_devices(
+                    self.conf.learner.local_device_maps, learner_class.device_count
+                )
+            else:
+                if (
+                    self.conf.learner.target
+                    != "mt_pipe.src.util.learner_mux.LearnerMux"
+                ):
+                    raise ValueError(
+                        "If not using 'mt_pipe.src.util.learner_mux.LearnerMux', local_device_maps must be an integer list"
+                    )
+                if not are_lists_equal(
+                    list(self.conf.learner.local_device_maps.keys()),
+                    list(self.conf.learner.params.chldrn.keys()),
+                ):
+                    raise ValueError(
+                        "When local_device_maps are specified, 'conf.learner.local_device_maps' and 'conf.learner.params.chldrn' must have the same keys."
+                    )
+
+                devices = {}
+                for k in self.conf.learner.local_device_maps.keys():
+                    ch_ln_cls = load_class(self.conf.learner.params.chldrn[k].target)
+                    device_count = ch_ln_cls.device_count
+                    ch_devices = map_devices(
+                        self.conf.learner.local_device_maps[k], device_count
+                    )
+                    devices[k] = ch_devices
         else:
             devices = self.devices
-        # correct the devices
-        devices = get_correct_device_lst(devices, learner_class.device_count)
+            devices = get_correct_device_lst(devices, learner_class.device_count)
         self.logger.info(f"Learner: using devices: {devices}")
 
         if self.is_ddp:
@@ -370,54 +416,80 @@ class Trainer:
             load_model_states(learner, sd, learner_map_info)
 
     def _load_loss(self):
-        def load_single_loss(loss_conf: omegaconf.dictconfig.DictConfig):
-            loss_class = load_class(loss_conf.target)
+        if self.do_train:
 
-            # map devices
-            if "local_device_maps" in loss_conf.keys():
-                device = [
-                    self.devices[local_id] for local_id in loss_conf.local_device_maps
-                ][-1]
-            else:
-                device = self.devices[-1]
+            def load_single_loss(loss_conf: omegaconf.dictconfig.DictConfig):
+                loss_class = load_class(loss_conf.target)
 
-            self.logger.info(f"Loss: using device: {device}")
+                # map devices
+                if "local_device_maps" in loss_conf.keys():
+                    if type(loss_conf.local_device_maps) == ListConfig:
+                        device = self.devices[loss_conf.local_device_maps]
+                    else:
+                        if loss_conf.target != "mt_pipe.src.losses.ConcatLoss":
+                            raise ValueError(
+                                "If not using 'mt_pipe.src.losses.ConcatLoss', local_device_maps must be an integer list"
+                            )
+                        if not are_lists_equal(
+                            list(loss_conf.local_device_maps.keys()),
+                            list(self.conf.loss.params.conf.keys()),
+                        ):
+                            raise ValueError(
+                                "When local_device_maps are specified, 'conf.loss.local_device_maps' and 'conf.loss.params.conf' must have the same keys."
+                            )
+                        device = {}
+                        for k in loss_conf.local_device_maps.keys():
+                            device[k] = self.devices[loss_conf.local_device_maps[k]]
+                else:
+                    device = self.devices[-1]
 
-            # create the loss object
-            loss_params = dict(loss_conf.params) if "params" in loss_conf.keys() else {}
-            loss = loss_class(
-                **loss_params,
-                device=device,
-            )
+                self.logger.info(f"Loss: using device: {device}")
 
-            return loss
+                # create the loss object
+                loss_params = (
+                    dict(loss_conf.params) if "params" in loss_conf.keys() else {}
+                )
+                loss = loss_class(
+                    **loss_params,
+                    device=device,
+                )
 
-        loss_fn: BaseLoss = load_single_loss(self.conf.loss)
-        self.train_loss_fn = loss_fn
-        self.val_loss_fn = loss_fn
+                return loss
+
+            loss_fn: BaseLoss = load_single_loss(self.conf.loss)
+            self.train_loss_fn = loss_fn
+            self.val_loss_fn = loss_fn
 
     def _load_training_objects(self):
-        if "optimizer" in self.conf:
-            optim_class = load_class(self.conf.optimizer.target)
-            self.optimizer = optim_class(
-                self.learner.parameters(), **dict(self.conf.optimizer.params)
-            )
-        else:
-            self.optimizer = Adam(self.learner.parameters())
-        self.logger.info(f"Using optimizer {self.optimizer.__class__.__name__}")
+        if self.do_train:
+            if "optimizer" in self.conf:
+                optim_class = load_class(self.conf.optimizer.target)
+                params = (
+                    dict(self.conf.optimizer.params)
+                    if "params" in self.conf.optimizer
+                    else {}
+                )
+                self.optimizer = optim_class(self.learner.parameters(), **params)
+            else:
+                self.optimizer = Adam(self.learner.parameters())
+            self.logger.info(f"Using optimizer {self.optimizer.__class__.__name__}")
 
-        if "lr_scheduler" in self.conf:
-            scheduler_class = load_class(self.conf.lr_scheduler.target)
-            params = (
-                self.conf.lr_scheduler.params
-                if "params" in self.conf.lr_scheduler
-                else {}
-            )
-            self.lr_scheduler: LRScheduler = scheduler_class(self.optimizer, **params)
-            self.logger.info(f"Using scheduler {self.lr_scheduler.__class__.__name__}")
-        else:
-            self.lr_scheduler = None
-            self.logger.info("Not using any scheduler")
+            if "lr_scheduler" in self.conf:
+                scheduler_class = load_class(self.conf.lr_scheduler.target)
+                params = (
+                    self.conf.lr_scheduler.params
+                    if "params" in self.conf.lr_scheduler
+                    else {}
+                )
+                self.lr_scheduler: LRScheduler = scheduler_class(
+                    self.optimizer, **params
+                )
+                self.logger.info(
+                    f"Using scheduler {self.lr_scheduler.__class__.__name__}"
+                )
+            else:
+                self.lr_scheduler = None
+                self.logger.info("Not using any scheduler")
 
     def _validate_conf(self):
         validate_conf(
@@ -435,6 +507,14 @@ class Trainer:
                 params = dict(eval_conf.params) if "params" in eval_conf else {}
                 self.evaluators[eval_nm] = eval_class(**params)
 
+    def _load_visualizer(self) -> None:
+        self.visualizers: Dict[str, BaseEvaluator] = {}
+        if "visualizers" in self.conf.train and self.do_train:
+            for visu_nm, visu_conf in self.conf.train.visualizers.items():
+                visu_class = load_class(visu_conf.target)
+                params = dict(visu_conf.params) if "params" in visu_conf else {}
+                self.visualizers[visu_nm] = visu_class(logger=self.logger, **params)
+
     def __init__(
         self,
         conf: str | Dict | omegaconf.dictconfig.DictConfig,
@@ -443,6 +523,7 @@ class Trainer:
         devices: Sequence[str | int],
         rank: int = None,
         world_size: int = 1,
+        use_amp: bool = False,
         logger: Logger = None,
         analysis_level: int = 1,
     ) -> None:
@@ -464,6 +545,7 @@ class Trainer:
         self.do_out = self.rank == 0 or self.rank is None
         self.logger = Logger(0, rank) if logger is None else logger
         self._validate_conf()
+        self.do_train = "train" in self.conf.keys()
         self.do_val = "val" in self.conf.keys()
         self.do_test = "test" in self.conf.keys()
         if not self.do_val:
@@ -478,6 +560,7 @@ class Trainer:
             )
         self._load_loss()
         self._load_evaluator()
+        self._load_visualizer()
         self._load_training_objects()
         self.ckpts = (
             {ckpt.epoch: ckpt.name for ckpt in self.conf.checkpoints}
@@ -485,6 +568,11 @@ class Trainer:
             else {}
         )
         self.analysis_level = analysis_level
+
+        self.use_amp = use_amp
+        self.scaler = GradScaler() if use_amp else None
+        if use_amp:
+            self.logger.info("Using AMP")
 
     def _unpack_losspack_recursive(self, loss_pack, lead=None):
         nm_loss_dict = {}
@@ -498,15 +586,19 @@ class Trainer:
                 nm_loss_dict = {**nm_loss_dict, **nested_dict}
         return nm_loss_dict
 
-    def _plot_loss_bacth(
+    def _plot_loss_batch(
         self,
         loss_pack: Dict[str, torch.Tensor],
         stage: Literal["Train", "Val"],
         batch_id,
         epoch,
     ) -> None:
-        card_nm_plt = f"EPOCH: {epoch}"
+        card_nm_plt = f"Multi_Task_Losses/{stage}"
         loss_pack = self._unpack_losspack_recursive(loss_pack)
+
+        self.logger.plot_loss_pack(card_nm_plt, loss_pack)
+
+        '''
         for nm, loss in loss_pack.items():
             if loss is not None:
                 loss = loss.cpu().item()
@@ -516,18 +608,25 @@ class Trainer:
                 self.logger.plot(cat_plt, card_nm_plt, loss, batch_id)
                 self.logger.accumulate(cat_acc, card_nm_acc, loss)
 
+        '''
+
     def val_step(
         self,
         batch: Sequence[torch.Tensor] | Dict[str, Sequence[torch.Tensor]],
         epoch: int,
         batch_id: int,
     ) -> torch.Tensor:
-        info = self.learner(batch)
-        loss_pack = self.val_loss_fn(info, batch)
+        if self.use_amp:
+            with autocast(device_type="cuda", dtype=torch.float16):
+                info = self.learner(batch)
+                loss_pack = self.val_loss_fn(info=info, batch=batch)
+        else:
+            info = self.learner(batch)
+            loss_pack = self.val_loss_fn(info=info, batch=batch)
         tot_loss = loss_pack["tot"]
 
         if self.analysis_level > 0 and self.do_out:
-            self._plot_loss_bacth(loss_pack, "Val", batch_id, epoch)
+            self._plot_loss_batch(loss_pack, "Val", batch_id, epoch)
 
         return tot_loss
 
@@ -539,20 +638,31 @@ class Trainer:
         batch_count: int,
     ) -> float:
         self.optimizer.zero_grad()
-        info = self.learner(batch)
-        loss_pack = self.train_loss_fn(info, batch)
-        tot_loss = loss_pack["tot"]
-        tot_loss.backward()
-        self.optimizer.step()
+
+        if self.use_amp:
+            with autocast(device_type="cuda", dtype=torch.float16):
+                info = self.learner(batch)
+                loss_pack = self.train_loss_fn(info=info, batch=batch)
+            tot_loss = loss_pack["tot"]
+            self.scaler.scale(tot_loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            info = self.learner(batch)
+            loss_pack = self.train_loss_fn(info=info, batch=batch)
+            tot_loss = loss_pack["tot"]
+            tot_loss.backward()
+            self.optimizer.step()
+
         if self.lr_scheduler:
             self.lr_scheduler.step(epoch + (batch_id + 1) / batch_count)
 
         if self.analysis_level > 0 and self.do_out:
             self.logger.batch_step(analyze_grads=self.analysis_level > 1)
-            self._plot_loss_bacth(loss_pack, "Train", batch_id, epoch)
+            self._plot_loss_batch(loss_pack, "Train", batch_id, epoch)
 
         tot_loss = tot_loss.detach().cpu().item()
-        return tot_loss
+        return tot_loss, info
 
     def _save_ckpt(self, epoch, output_path, status, history=None):
         # checkpoints
@@ -737,9 +847,12 @@ class Trainer:
         if train_mock_batch_count == -1:
             train_ds = self.train_ds
         else:
-            train_ds = get_mock_ds(
-                self.conf.train, self.train_ds, train_mock_batch_count
-            )
+            if self.do_train:
+                train_ds = get_mock_ds(
+                    self.conf.train, self.train_ds, train_mock_batch_count
+                )
+            else:
+                train_ds = self.train_ds
         val_ds = self.val_ds
         if self.do_val:
             if val_mock_batch_count != -1:
@@ -810,7 +923,10 @@ class Trainer:
                 loader, sampler = get_single_loader(dss, split_conf.loader_params)
                 return loader, [sampler]
 
-        train_dl, train_samplers = get_loader(train_ds, self.conf.train)
+        if self.do_train:
+            train_dl, train_samplers = get_loader(train_ds, self.conf.train)
+        else:
+            train_dl, train_samplers = None, [None]
         if self.do_val:
             val_dl, val_samplers = get_loader(val_ds, self.conf.val)
         else:
@@ -821,7 +937,7 @@ class Trainer:
             test_dl, test_samplers = None, [None]
 
         # validate the dataloaders
-        if len(train_dl) == 0:
+        if train_dl is not None and (len(train_dl) == 0):
             raise AttributeError("'train' dataloader has length 0")
         if val_dl is not None and (len(val_dl) == 0):
             raise AttributeError("'val' dataloader has length 0")
@@ -847,7 +963,9 @@ class Trainer:
 
             def process_batch(batch, batch_id):
                 self.optimizer.zero_grad()
-                train_loss = self.train_step(batch, epoch, batch_id, train_batch_count)
+                train_loss, info = self.train_step(
+                    batch, epoch, batch_id, train_batch_count
+                )
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
@@ -857,6 +975,12 @@ class Trainer:
                         train_loss,
                         batch_id,
                     )
+                    if (
+                        batch_id == train_batch_count - 1
+                        and self.visualizers is not None
+                    ):
+                        for nm, visu in self.visualizers.items():
+                            visu.process_batch(info, batch, epoch)
                 train_losses.append(train_loss)
 
             for batch_id, batch in enumerate(train_dl):
@@ -897,10 +1021,9 @@ class Trainer:
                 val_loss /= val_batch_count
 
         if self.is_ddp:
+            val_loss = val_loss.detach().cpu()
             dist.all_reduce(val_loss, dist.ReduceOp.SUM)
-            val_loss = (
-                val_loss.detach().cpu().item() / self.world_size
-            )  # since dist.ReduceOp.AVG is not available with the default backend (Gloo)
+            val_loss = val_loss.item() / self.world_size
         else:
             val_loss = val_loss.detach().cpu().item()
 
@@ -919,7 +1042,12 @@ class Trainer:
 
                 results = {nm: [] for nm in self.evaluators.keys()}
                 for batch in test_dl:
-                    info = self.learner(batch)
+                    if self.use_amp:
+                        with autocast(device_type="cuda", dtype=torch.float16):
+                            info = self.learner(batch)
+                    else:
+                        info = self.learner(batch)
+
                     for nm, eval in self.evaluators.items():
                         results[nm].append(eval.process_batch(batch=batch, info=info))
                     pbar.update()
@@ -946,15 +1074,27 @@ class Trainer:
                         eval.output(results[nm])
 
     def _get_fit_info(self, mock_epoch_count, train_dl, val_dl):
-        tollerance = self.conf.train.tollerance
-        train_batch_count = len(train_dl)
+        tollerance = (
+            self.conf.train.tollerance
+            if "train" in self.conf and "tollerance" in self.conf.train
+            else -1
+        )
+        if self.do_train:
+            train_batch_count = len(train_dl)
+        else:
+            train_batch_count = None
 
         if self.do_val:
             val_batch_count = len(val_dl)
         else:
             val_batch_count = None
 
-        epochs = mock_epoch_count if mock_epoch_count > 0 else self.conf.train.epochs
+        if self.do_train:
+            epochs = (
+                mock_epoch_count if mock_epoch_count > 0 else self.conf.train.epochs
+            )
+        else:
+            epochs = 0
 
         return (
             tollerance,
@@ -994,7 +1134,6 @@ class Trainer:
 
         if start_epoch >= epochs:
             self.logger.info(self.already_trained_msg)
-            return
 
         best_ckpt_path = os.path.join(output_path, "ckpts", "best.ckpt")
         final_ckpt_path = os.path.join(output_path, "ckpts", "final.ckpt")
@@ -1005,78 +1144,83 @@ class Trainer:
                 if smpl is not None:
                     smpl.set_epoch(epoch)
 
-        for epoch in range(start_epoch, epochs):
-            self.logger.info(
-                f"---- EPOCH {str(epoch+1).rjust(len(str(epochs)), '0')}/{epochs} ----"
-            )
-            set_samplers_epoch(epoch)
-
-            train_loss = self._train_loop(train_batch_count, show_pbar, epoch, train_dl)
-            torch.cuda.empty_cache()
-
-            if self.do_val:
-                val_loss = self._val_loop(val_batch_count, show_pbar, epoch, val_dl)
-                torch.cuda.empty_cache()
-            else:
-                val_loss = None
-
-            if self.is_ddp:
-                dist.barrier()
-
-            # save extra checkpoints if specified
-            if epoch in self.ckpts.keys():
-                name = self.ckpts[epoch].rstrip(".ckpt")
+        if self.do_train:
+            for epoch in range(start_epoch, epochs):
                 self.logger.info(
-                    f"Saving additional checkpoint '{name}' at {output_path}"
+                    f"---- EPOCH {str(epoch+1).rjust(len(str(epochs)), '0')}/{epochs} ----"
                 )
-                self._save_ckpt(epoch, output_path, name)
+                set_samplers_epoch(epoch)
 
-            # logging
-            history["train_loss"].append(train_loss)
-            if self.do_val:
-                history["val_loss"].append(val_loss)
-            if self.do_out:
-                self.logger.plot("Loss (job wide)", "Train", train_loss, epoch)
+                train_loss = self._train_loop(
+                    train_batch_count, show_pbar, epoch, train_dl
+                )
+                torch.cuda.empty_cache()
+
                 if self.do_val:
-                    self.logger.plot("Loss (job wide)", "Val", val_loss, epoch)
-                self.logger.step(epoch, analyze_grad=self.analysis_level > 1)
+                    val_loss = self._val_loop(val_batch_count, show_pbar, epoch, val_dl)
+                    torch.cuda.empty_cache()
+                else:
+                    val_loss = None
 
-            # evaluation of the epoch performance
-            if self.do_val and (val_loss < min_loss):
-                min_loss = val_loss
-                best_epoch = epoch
-                if self.do_out:
-                    self._save_ckpt(epoch, output_path, "best", history)
-                    shutil.copy(best_ckpt_path, final_ckpt_path)
-            else:
-                if self.do_out:
-                    self._save_ckpt(epoch, output_path, "final", history)
+                if self.is_ddp:
+                    dist.barrier()
+
+                # save extra checkpoints if specified
+                if epoch in self.ckpts.keys():
+                    name = self.ckpts[epoch].rstrip(".ckpt")
+                    self.logger.info(
+                        f"Saving additional checkpoint '{name}' at {output_path}"
+                    )
+                    self._save_ckpt(epoch, output_path, name)
+
+                # logging
+                history["train_loss"].append(train_loss)
                 if self.do_val:
-                    if epoch - best_epoch > tollerance and tollerance >= 0:
-                        self.logger.info(
-                            f"Stopping early at epoch {epoch}. Best epoch found at {best_epoch} with {tollerance} tollerance"
-                        )
-                        break
+                    history["val_loss"].append(val_loss)
+                if self.do_out:
+                    self.logger.plot("Loss (job wide)", "Train", train_loss, epoch)
+                    if self.do_val:
+                        self.logger.plot("Loss (job wide)", "Val", val_loss, epoch)
+                    self.logger.step(epoch, analyze_grad=self.analysis_level > 1)
 
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
-            gc.collect()
-            gc.collect(0)
-            gc.collect(1)
-            gc.collect(2)
-            torch.cuda.empty_cache()
+                # evaluation of the epoch performance
+                if self.do_val and (val_loss < min_loss):
+                    min_loss = val_loss
+                    best_epoch = epoch
+                    if self.do_out:
+                        self._save_ckpt(epoch, output_path, "best", history)
+                        shutil.copy(best_ckpt_path, final_ckpt_path)
+                else:
+                    if self.do_out:
+                        self._save_ckpt(epoch, output_path, "final", history)
+                    if self.do_val:
+                        if epoch - best_epoch > tollerance and tollerance >= 0:
+                            self.logger.info(
+                                f"Stopping early at epoch {epoch}. Best epoch found at {best_epoch} with {tollerance} tollerance"
+                            )
+                            break
 
-        dist.barrier()
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                gc.collect()
+                gc.collect(0)
+                gc.collect(1)
+                gc.collect(2)
+                torch.cuda.empty_cache()
+
+            dist.barrier()
 
         if self.do_test:
-            if os.path.exists(best_ckpt_path):
-                sd = torch.load(best_ckpt_path)["learner"]
-            else:
-                sd = torch.load(final_ckpt_path)["learner"]
-            if self.is_ddp:
-                self.learner.module.load_state_dict(sd)
-            else:
-                self.learner.load_state_dict(sd)
+            if self.do_train:
+                if os.path.exists(best_ckpt_path):
+                    sd = torch.load(best_ckpt_path)["learner"]
+                else:
+                    sd = torch.load(final_ckpt_path)["learner"]
+                if self.is_ddp:
+                    self.learner.module.load_state_dict(sd)
+                else:
+                    self.learner.load_state_dict(sd)
+
             self._test_loop(show_pbar=show_pbar, test_dl=test_dl)
 
         self.logger.info(f"Single-staged training successful!\n")
