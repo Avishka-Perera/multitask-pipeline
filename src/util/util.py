@@ -277,3 +277,25 @@ def flatten_leads(tens: torch.Tensor, dim_count: int) -> torch.Tensor:
     unchn_dims = tens.shape[dim_count:]
     new_shape = [np.prod(merge_dims), *unchn_dims]
     return tens.view(*new_shape)
+
+
+def has_inner_dicts(dictionary):
+    for value in dictionary.values():
+        if isinstance(value, dict):
+            return True
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                if isinstance(item, dict):
+                    return True
+
+    return False 
+
+def get_shallow_vals(dic):
+    shallow_dic = {}
+    for i in dic.keys():
+        if i!="tot":
+            if type(dic[i]) == dict:
+                shallow_dic[i] = dic[i]["tot"]
+            else:
+                shallow_dic[i] = dic[i]
+    return shallow_dic

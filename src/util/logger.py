@@ -2,6 +2,7 @@ import numbers
 from torch.utils.tensorboard import SummaryWriter
 import logging
 from .grad_analyzer import GradAnalyzer
+from .util import has_inner_dicts, get_shallow_vals
 
 
 def verbose_level_local2logging(local):
@@ -80,6 +81,20 @@ class Logger:
     def plot_loss_pack(self, card_name: str, loss_pack):
         self.plotter.add_scalars(card_name, loss_pack, self.iteration)
         self.iteration += 1
+
+    def plot_loss_recursive(self, loss_pack, step,card=""):
+        if card=="":
+            card = "Total_Loss"
+        self.plotter.add_scalar(f"{card}/tot", loss_pack["tot"], step)
+        self.plotter.add_scalars(f"{card}/Component_Losses", get_shallow_vals(loss_pack), step)
+        if card == "Total_Loss":
+            card = ""
+        if has_inner_dicts(loss_pack):
+            for j in loss_pack.keys():
+                if j!="tot" and type(loss_pack[j]) == dict:
+                    self.plot_loss_recursive(loss_pack[j], step, card = f"{card}_{j}")
+        else:
+            return
 
     def _accumulate(self, card, y):
         if self._is_valid(y):

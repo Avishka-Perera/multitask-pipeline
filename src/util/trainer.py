@@ -548,6 +548,7 @@ class Trainer:
         self.do_train = "train" in self.conf.keys()
         self.do_val = "val" in self.conf.keys()
         self.do_test = "test" in self.conf.keys()
+        self.iteration = 0
         if not self.do_val:
             self.logger.warn(
                 "No validation configuration detected. Validation loops will be skipped"
@@ -969,11 +970,9 @@ class Trainer:
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
-                    self.logger.plot(
-                        "Loss (per epoch): Train",
-                        f"EPOCH: {epoch}",
+                    self.logger.plot_loss_recursive(
                         train_loss,
-                        batch_id,
+                        epoch * len(train_dl) + batch_id
                     )
                     if (
                         batch_id == train_batch_count - 1
@@ -1003,7 +1002,8 @@ class Trainer:
                     self.logger.info("Validating")
 
                 def process_batch(batch, batch_id, val_loss):
-                    val_loss += self.val_step(batch, epoch, batch_id)
+                    val_loss_pack = self.val_step(batch, epoch, batch_id)
+                    val_loss += val_loss_pack["tot"]
                     cur_val_loss = val_loss / (batch_id + 1)
                     if self.do_out:
                         pbar.set_postfix(loss=cur_val_loss.detach().cpu().item())
