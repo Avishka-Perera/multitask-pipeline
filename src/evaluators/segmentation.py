@@ -1,90 +1,117 @@
 import os
 import torch
-from sklearn.metrics import confusion_matrix
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from typing import Dict, List
-from ._base import BaseEvaluator
-from ..util import flatten_leads
-import pandas as pd
-from functools import reduce
+from mt_pipe.src.evaluators import BaseEvaluator
+from matplotlib import cm, colors
+from skimage import measure
+from PIL import Image
 
 
 class SegmentationEvaluator(BaseEvaluator):
-    def __init__(
-        self,
-        out_path: str = None,
-        rank: int = None,
-        world_size: int = None,
-        has_aug_ax: bool = False,
-    ) -> None:
-        self.has_auf_ax = has_aug_ax
-        self.total_intersec = 0
-        self.total_union = 0
-
+    def __init__(self, out_path: str = None, batch_img_key: str = "img") -> None:
         if out_path is not None:
-            self.save_to_disk = True
-            os.makedirs(out_path, exist_ok=True)
-            self.report_path = os.path.join(out_path, "report.txt")
+            self.set_out_path(out_path)
         else:
             self.save_to_disk = False
+            self.vis_path = None
             self.conf_mat_path = None
             self.report_path = None
-        self.rank = rank
-        self.world_size = world_size
-        self.is_ddp = rank is not None
+        self.seg_id = 1
+        self.batch_img_key = batch_img_key
 
     def set_out_path(self, out_path: str) -> None:
         self.save_to_disk = True
-        os.makedirs(out_path, exist_ok=True)
+        self.vis_path = os.path.join(out_path, "visualizations")
+        os.makedirs(self.vis_path, exist_ok=True)
         self.report_path = os.path.join(out_path, "report.txt")
+
+    def _gray2rgb(self, gray_img):
+        norm = colors.Normalize(vmin=gray_img.min(), vmax=gray_img.max())
+        rgba_image = cm.gray(norm(gray_img))
+        rgb_image = rgba_image[:, :, :3]
+        return rgb_image
+
+    def _visualize_segmentation(self, img, seg_lbl, seg_prd, seg_id):
+        seg_lbl = seg_lbl
+        gt_binary_mask = np.zeros_like(seg_lbl)
+        gt_binary_mask[seg_lbl == seg_id] = 1
+
+        # seg_prd = seg_prd
+        pd_binary_mask = np.zeros_like(seg_prd)
+        pd_binary_mask[seg_prd == seg_id] = 1
+
+        if img.shape[-1] == 1:
+            img = self._gray2rgb(img.squeeze())
+
+        # predicted regions
+        transparency = 0.3
+        for i in [1, 2]:
+            img[:, :, i][pd_binary_mask == 1] = (
+                img[:, :, i][pd_binary_mask > 0] * (1 - transparency)
+                + pd_binary_mask[pd_binary_mask > 0] * transparency
+            )
+        for i in [0]:
+            img[:, :, i][pd_binary_mask == 1] = img[:, :, i][pd_binary_mask > 0] * (
+                1 - transparency
+            )
+
+        # ground truth borders
+        contours = measure.find_contours(gt_binary_mask, 0.5)
+        for contour in contours:
+            contour = np.round(contour).astype(int)
+            img[contour[:, 0], contour[:, 1], 2] = 0
+            img[contour[:, 0], contour[:, 1], 0:2] = 1
+        img = (img * 255).astype(np.uint8)
+
+        return img
 
     def process_batch(
         self, batch: Dict[str, torch.Tensor], info: Dict[str, torch.Tensor]
     ) -> None:
-        logits = info["logits"]
-        labels = batch["seg"]
-        total_intersec, total_union = [], []
-        for ind in range(labels.shape[0]):
-            intersect, union = self.iou(labels[ind], logits[ind])
+        logits = info["logits"].cpu().detach().numpy()
+        logits = logits.argmax(axis=1)
+        labels = batch["seg"].cpu().detach().numpy()
+        images = batch[self.batch_img_key].cpu().detach().numpy()
+        labels = labels.squeeze()
+        total_intersec, total_union = 0, 0
+        for ind in np.unique(labels):
+            labels_mask = np.zeros(labels.shape)
+            labels_mask[labels == ind] = 1
+            logits_mask = np.zeros(labels.shape)
+            logits_mask[logits == ind] = 1
+            intersection_mask = np.logical_and(labels_mask, logits_mask)
+            union_mask = np.logical_or(labels_mask, logits_mask)
+            intersect = intersection_mask.sum()
+            union = union_mask.sum()
             total_intersec += intersect
             total_union += union
-        return {"total_intersec":total_intersec, "total_union":total_union}
 
+        imgs = []
+        for i in range(len(images)):
+            img = self._visualize_segmentation(
+                images[i], labels[i], logits[i], self.seg_id
+            )
+            imgs.append(img)
 
-    def iou(self, true_image, pred_img, threshold=0.5):
-        pred_image_ = np.where(pred_img > threshold, 1, 0)
+        return {"intersec": total_intersec, "union": total_union, "imgs": imgs}
 
-        def calculate_iou(pred_mask, true_mask):
-            intersection = torch.logical_and(pred_mask, true_mask)
-            union = torch.logical_or(pred_mask, true_mask)
-            return torch.sum(intersection), torch.sum(union)
-
-        def calculate_miou(true_image, pred_image):
-            pred_image, true_image = torch.tensor(pred_image), torch.tensor(true_image)
-            unique_labels = pred_image.shape[0]
-            total_intersec = []
-            total_union = []
-
-            for i in range(unique_labels):
-                intersect, union = calculate_iou(pred_image[i], true_image[i])
-                total_intersec += [intersect]
-                total_union += [union]
-            return total_intersec, total_union
-        return calculate_miou(true_image, pred_image_)
-
-    def _get_report(self) -> str:
-        acc = np.array(self.total_intersec).mean() / np.array(self.total_union).mean()
-        report = f"Accuracy: {acc}"
+    def _save_report(self, iou: float) -> str:
+        report = f"IoU: {iou}"
         if self.save_to_disk:
             with open(self.report_path, "w") as handler:
                 handler.write(report)
         return report
 
-    def output(self, results: List[Dict[str, list]]) -> str:
-        total_intersec = reduce(lambda i, r: i + r["total_intersec"], results, [])
-        total_union = reduce(lambda i, r: i + r["total_union"], results, [])
-        self.total_intersec = total_intersec
-        self.total_union = total_union
-        self._get_report()
+    def _export_imgs(self, imgs):
+        for i, img in enumerate(imgs):
+            img = Image.fromarray(img)
+            img.save(os.path.join(self.vis_path, f"{i}.jpg"))
+
+    def output(self, results: List[Dict[str, int]]) -> str:
+        ious = [res["intersec"] / res["union"] for res in results]
+        iou = sum(ious) / len(ious)
+        imgs = [img for res in results for img in res["imgs"]]
+        if self.save_to_disk:
+            self._export_imgs(imgs)
+        return self._save_report(iou)
