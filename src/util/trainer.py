@@ -567,47 +567,12 @@ class Trainer:
         if use_amp:
             self.logger.info("Using AMP")
 
-    def _unpack_losspack_recursive(self, loss_pack, lead=None):
-        nm_loss_dict = {}
-        for nm, val in loss_pack.items():
-            hier_nm = nm if lead is None else f"{lead}:{nm}"
-            if type(val) != dict:
-                if nm != "tot":
-                    nm_loss_dict[hier_nm] = val
-            else:
-                nested_dict = self._unpack_losspack_recursive(val, hier_nm)
-                nm_loss_dict = {**nm_loss_dict, **nested_dict}
-        return nm_loss_dict
-
-    def _plot_loss_batch(
-        self,
-        loss_pack: Dict[str, torch.Tensor],
-        stage: Literal["Train", "Val"],
-        batch_id,
-        epoch,
-    ) -> None:
-        card_nm_plt = f"Multi_Task_Losses/{stage}"
-        loss_pack = self._unpack_losspack_recursive(loss_pack)
-
-        self.logger.plot_loss_pack(card_nm_plt, loss_pack)
-
-        """
-        for nm, loss in loss_pack.items():
-            if loss is not None:
-                loss = loss.cpu().item()
-                cat_plt = f"Loss (per epoch):{stage}:{nm}"
-                cat_acc = f"Loss Analysis (job wide):{stage}"
-                card_nm_acc = nm
-                self.logger.plot(cat_plt, card_nm_plt, loss, batch_id)
-                self.logger.accumulate(cat_acc, card_nm_acc, loss)
-
-        """
-
     def val_step(
         self,
         batch: Sequence[torch.Tensor] | Dict[str, Sequence[torch.Tensor]],
         epoch: int,
         batch_id: int,
+        batch_count: int,
     ) -> torch.Tensor:
         if self.use_amp:
             with autocast(device_type="cuda", dtype=torch.float16):
@@ -619,7 +584,7 @@ class Trainer:
         tot_loss = loss_pack["tot"]
 
         if self.analysis_level > 0 and self.do_out:
-            self._plot_loss_batch(loss_pack, "Val", batch_id, epoch)
+            self.logger.plot_loss_pack(loss_pack, epoch * batch_count + batch_id, "val")
 
         return tot_loss
 
@@ -652,7 +617,9 @@ class Trainer:
 
         if self.analysis_level > 0 and self.do_out:
             self.logger.batch_step(analyze_grads=self.analysis_level > 1)
-            self._plot_loss_batch(loss_pack, "Train", batch_id, epoch)
+            self.logger.plot_loss_pack(
+                loss_pack, epoch * batch_count + batch_id, "train"
+            )
 
         tot_loss = tot_loss.detach().cpu().item()
         return tot_loss, info
@@ -799,7 +766,7 @@ class Trainer:
 
         if self.do_out:
             model = self.learner.module if self.is_ddp else self.learner
-            self.logger.init_plotter(output_path, model)
+            self.logger.init_plotter(os.path.join(output_path, "logs"), model)
 
             if self.do_test:
                 for nm, eval in self.evaluators.items():
@@ -962,10 +929,6 @@ class Trainer:
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
-                    self.logger.plot_loss_recursive(
-                        train_loss,
-                        epoch * len(train_dl) + batch_id
-                    )
                     if (
                         batch_id == train_batch_count - 1
                         and self.visualizers is not None
@@ -994,7 +957,9 @@ class Trainer:
                     self.logger.info("Validating")
 
                 def process_batch(batch, batch_id, val_loss):
-                    val_loss_pack = self.val_step(batch, epoch, batch_id)
+                    val_loss_pack = self.val_step(
+                        batch, epoch, batch_id, val_batch_count
+                    )
                     val_loss += val_loss_pack["tot"]
                     cur_val_loss = val_loss / (batch_id + 1)
                     if self.do_out:

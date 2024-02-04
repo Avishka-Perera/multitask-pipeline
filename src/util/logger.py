@@ -77,35 +77,27 @@ class Logger:
         card_name = card_name.replace("/", "_")
         card = f"{category}/{card_name}"
         self._plot_to_tb(card, val, glob_step)
-        
-    def plot_loss_pack(self, card_name: str, loss_pack):
-        self.plotter.add_scalars(card_name, loss_pack, self.iteration)
-        self.iteration += 1
 
-    def plot_loss_recursive(self, loss_pack, step,card=""):
-        if card=="":
+    def plot_loss_pack(self, loss_pack, step, suffix):
+        self._plot_loss_pack_recursive(loss_pack, step, card="", suffix=suffix)
+
+    def _plot_loss_pack_recursive(self, loss_pack, step, card, suffix):
+        if card == "":
             card = "Total_Loss"
-        self.plotter.add_scalar(f"{card}/tot", loss_pack["tot"], step)
-        self.plotter.add_scalars(f"{card}/Component_Losses", get_shallow_vals(loss_pack), step)
+        self.plotter.add_scalar(f"{card}/Total:{suffix}", loss_pack["tot"], step)
+        self.plotter.add_scalars(
+            f"{card}/Component_Losses:{suffix}", get_shallow_vals(loss_pack), step
+        )
         if card == "Total_Loss":
             card = ""
         if has_inner_dicts(loss_pack):
             for j in loss_pack.keys():
-                if j!="tot" and type(loss_pack[j]) == dict:
-                    self.plot_loss_recursive(loss_pack[j], step, card = f"{card}_{j}")
+                if j != "tot" and type(loss_pack[j]) == dict:
+                    self._plot_loss_pack_recursive(
+                        loss_pack[j],
+                        step,
+                        card=f"{card}_{j}" if card != "" else j,
+                        suffix=suffix,
+                    )
         else:
             return
-
-    def _accumulate(self, card, y):
-        if self._is_valid(y):
-            if card in self.data.keys():
-                self.data[card].append(y)
-            else:
-                self.data[card] = [y]
-
-    def accumulate(self, category: str, card_name: str, val: float) -> None:
-        """Accumulates a value under a specific card. The accumulated values will be plotted by calling step()"""
-        category = category.replace("/", "_")
-        card_name = card_name.replace("/", "_")
-        card = f"{category}/{card_name}"
-        self._accumulate(card, val)
