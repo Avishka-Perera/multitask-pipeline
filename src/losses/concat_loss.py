@@ -8,7 +8,7 @@ from ..util import load_class
 class ConcatLoss:
     def __init__(
         self,
-        device: int,
+        device: Dict[str, int],
         conf: DictConfig | Dict[str, object] = {},
         weight_scale: float = -1,
     ) -> None:

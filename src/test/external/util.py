@@ -30,6 +30,8 @@ def make_random_nested_tens(conf):
 
 
 def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]:
+    conf = OmegaConf.create(conf)
+
     def validate_nested_objs(
         obj, conf, key_lead="", tentative_none_mask=None
     ) -> Tuple[bool, str]:
