@@ -1,1 +1,1 @@
-Revisit SegmentationEvaluator: Export a limited number of visualizations.
+Revisit SegmentationEvaluator: Export a limited number of visualizations. @avishka
