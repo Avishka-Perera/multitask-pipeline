@@ -76,13 +76,16 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
                                 False,
                                 f"Invalid dtype. Key: {key_lead}. Expected: {conf['dtype']}, Found: {obj.dtype}",
                             )
-                        if "unique" in conf and not are_lists_equal(
-                            list(conf.unique), list(obj.unique())
-                        ):
-                            return (
-                                False,
-                                f"Uniques dose not match. Key: {key_lead}. Expected: {conf['unique']}, Found: {obj.unique()}",
-                            )
+                        if "unique" in conf:
+                            if type(obj) == np.ndarray:
+                                uniques = np.unique(obj)
+                            else:
+                                uniques = obj.unique()
+                            if not are_lists_equal(list(conf.unique), list(uniques)):
+                                return (
+                                    False,
+                                    f"Uniques dose not match. Key: {key_lead}. Expected: {conf['unique']}, Found: {uniques}",
+                                )
 
                         return True, "Valid"
                     else:
