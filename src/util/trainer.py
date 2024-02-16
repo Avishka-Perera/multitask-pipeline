@@ -61,6 +61,7 @@ def validate_conf(
         "val",
         "test",
         "checkpoints",
+        "visualizers",
     ]
     validate_keys(conf.keys(), root_required_keys, root_possible_keys, "conf")
     if do_val and not do_train:
@@ -220,7 +221,7 @@ def validate_conf(
     # start validate the train configurations
     if do_train:
         train_required_keys = ["loader_params", "epochs"]
-        train_possible_keys = train_required_keys + ["tollerance", "visualizers"]
+        train_possible_keys = train_required_keys + ["tollerance"]
         validate_keys(
             conf.train.keys(),
             train_required_keys,
@@ -501,11 +502,19 @@ class Trainer:
 
     def _load_visualizer(self) -> None:
         self.visualizers: Dict[str, BaseEvaluator] = {}
-        if "visualizers" in self.conf.train and self.do_train:
-            for visu_nm, visu_conf in self.conf.train.visualizers.items():
+        if "visualizers" in self.conf:
+            for visu_nm, visu_conf in self.conf.visualizers.items():
                 visu_class = load_class(visu_conf.target)
                 params = dict(visu_conf.params) if "params" in visu_conf else {}
-                self.visualizers[visu_nm] = visu_class(logger=self.logger, **params)
+                loops = (
+                    visu_conf.loops
+                    if "loops" in visu_conf
+                    else ["train", "val", "test"]
+                )
+                self.visualizers[visu_nm] = {
+                    "obj": visu_class(logger=self.logger, name=visu_nm, **params),
+                    "loops": loops,
+                }
 
     def __init__(
         self,
@@ -586,7 +595,7 @@ class Trainer:
         if self.analysis_level > 0 and self.do_out:
             self.logger.plot_loss_pack(loss_pack, epoch * batch_count + batch_id, "val")
 
-        return tot_loss
+        return tot_loss, info
 
     def train_step(
         self,
@@ -933,8 +942,9 @@ class Trainer:
                         batch_id == train_batch_count - 1
                         and self.visualizers is not None
                     ):
-                        for nm, visu in self.visualizers.items():
-                            visu.process_batch(info, batch, epoch)
+                        for visu in self.visualizers.values():
+                            if "train" in visu["loops"]:
+                                visu["obj"].process_batch(info, batch, epoch, "train")
                 train_losses.append(train_loss)
 
             for batch_id, batch in enumerate(train_dl):
@@ -957,7 +967,7 @@ class Trainer:
                     self.logger.info("Validating")
 
                 def process_batch(batch, batch_id, val_loss):
-                    val_loss_pack = self.val_step(
+                    val_loss_pack, info = self.val_step(
                         batch, epoch, batch_id, val_batch_count
                     )
                     val_loss += val_loss_pack["tot"]
@@ -965,6 +975,15 @@ class Trainer:
                     if self.do_out:
                         pbar.set_postfix(loss=cur_val_loss.detach().cpu().item())
                         pbar.update(1)
+                        if (
+                            batch_id == val_batch_count - 1
+                            and self.visualizers is not None
+                        ):
+                            for visu in self.visualizers.values():
+                                if "train" in visu["loops"]:
+                                    visu["obj"].process_batch(
+                                        info, batch, epoch, "train"
+                                    )
                         self.logger.plot(
                             "Loss (per epoch): Val",
                             f"EPOCH: {epoch}",
@@ -986,7 +1005,7 @@ class Trainer:
 
         return val_loss
 
-    def _test_loop(self, show_pbar: bool, test_dl: DataLoader) -> None:
+    def _test_loop(self, show_pbar: bool, epoch: int, test_dl: DataLoader) -> None:
         self.learner.eval()
         with torch.no_grad():
             with tqdm(
@@ -998,7 +1017,7 @@ class Trainer:
                     self.logger.info("Testing")
 
                 results = {nm: [] for nm in self.evaluators.keys()}
-                for batch in test_dl:
+                for batch_id, batch in enumerate(test_dl):
                     if self.use_amp:
                         with autocast(device_type="cuda", dtype=torch.float16):
                             info = self.learner(batch)
@@ -1008,6 +1027,10 @@ class Trainer:
                     for nm, eval in self.evaluators.items():
                         results[nm].append(eval.process_batch(batch=batch, info=info))
                     pbar.update()
+                    if batch_id == len(test_dl) - 1 and self.visualizers is not None:
+                        for visu in self.visualizers.values():
+                            if "train" in visu["loops"]:
+                                visu["obj"].process_batch(info, batch, epoch, "train")
 
                 # gather all results at rank 0 replica
                 if self.is_ddp:
@@ -1178,6 +1201,6 @@ class Trainer:
                 else:
                     self.learner.load_state_dict(sd)
 
-            self._test_loop(show_pbar=show_pbar, test_dl=test_dl)
+            self._test_loop(show_pbar=show_pbar, epoch=epoch, test_dl=test_dl)
 
         self.logger.info(f"Single-staged training successful!\n")
