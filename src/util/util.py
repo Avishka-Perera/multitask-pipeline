@@ -288,14 +288,17 @@ def has_inner_dicts(dictionary):
                 if isinstance(item, dict):
                     return True
 
-    return False 
+    return False
+
 
 def get_shallow_vals(dic):
     shallow_dic = {}
     for i in dic.keys():
-        if i!="tot":
+        if i != "tot":
             if type(dic[i]) == dict:
-                shallow_dic[i] = dic[i]["tot"]
+                if dic[i]["tot"] is not None:
+                    shallow_dic[i] = dic[i]["tot"]
             else:
-                shallow_dic[i] = dic[i]
+                if dic[i] is not None:
+                    shallow_dic[i] = dic[i]
     return shallow_dic
