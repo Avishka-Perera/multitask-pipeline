@@ -21,10 +21,16 @@ def make_random_nested_tens(conf):
             nested_tens.append(make_random_nested_tens(sub_conf))
         return nested_tens
     elif type(conf) == dict:
-        nested_tens = {}
-        for k, sub_conf in conf.items():
-            nested_tens[k] = make_random_nested_tens(sub_conf)
-        return nested_tens
+        if are_lists_equal(conf.keys(), ["type", "value"]):
+            if conf["type"] == "list":
+                return list(conf["value"])
+            else:
+                raise ValueError("Invalid Tensor configuration")
+        else:
+            nested_tens = {}
+            for k, sub_conf in conf.items():
+                nested_tens[k] = make_random_nested_tens(sub_conf)
+            return nested_tens
     else:
         raise ValueError("Invalid Tensor configuration")
 
@@ -178,7 +184,7 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
     def validate_nested_conf_keys(obj, conf, key_lead="") -> Tuple[bool, str]:
         if type(obj) in [tuple, list]:
             if len(obj) == len(conf):
-                for i, sub_obj in obj:
+                for i, sub_obj in enumerate(obj):
                     validate_nested_conf_keys(
                         sub_obj, conf[i], key_lead=f"{key_lead}[{i}]"
                     )
