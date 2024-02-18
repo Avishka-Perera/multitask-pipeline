@@ -11,8 +11,6 @@ def test(logger: Logger, conf: OmegaConf, device: int) -> None:
 
         loss_cls = load_class(loss_conf.loss_fn.target)
         params = loss_conf.loss_fn.params if "params" in loss_conf.loss_fn else {}
-        if "weight_scale" not in params:
-            params["weight_scale"] = 1
         loss_fn = loss_cls(**params, device=device)
 
         info = make_random_nested_tens(loss_conf.input_conf.info)

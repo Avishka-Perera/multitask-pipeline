@@ -12,12 +12,9 @@ def flatten_leads(tens: torch.Tensor, dim_count: int) -> torch.Tensor:
 
 
 class CrossEntropyLoss:
-    def __init__(
-        self, device: int, weight_scale: float = 1, has_aug_ax: bool = False
-    ) -> None:
+    def __init__(self, device: int, has_aug_ax: bool = False) -> None:
         self.device = device
         self.has_aug_ax = has_aug_ax
-        self.weight_scale = weight_scale
         self.loss_fn = TorchCrossEntropyLoss()
 
     def __call__(
@@ -30,6 +27,6 @@ class CrossEntropyLoss:
         if self.has_aug_ax:
             logits = flatten_leads(logits, 2)
             labels = flatten_leads(labels, 2)
-        loss = self.loss_fn(logits, labels) * self.weight_scale
+        loss = self.loss_fn(logits, labels)
 
         return {"tot": loss}
