@@ -51,3 +51,6 @@ class BaseVisualizer:
                 dataformats="HWC",
             )
             self.global_step += 1
+
+
+__all__ = ["BaseVisualizer"]

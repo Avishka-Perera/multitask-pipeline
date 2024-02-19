@@ -68,37 +68,6 @@ def images_to_gif(input_dir: str, output_path: str, duration=100, quality=75):
     )
 
 
-def resize_images(input_dir, output_dir, resize_factor):
-    """
-    Resize images in the input directory and save them to the output directory.
-
-    :param input_dir: The directory containing the input images.
-    :param output_dir: The directory where resized images will be saved.
-    :param new_size: The new size for the images as a tuple (width, height).
-    """
-    # Ensure the output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
-    # List all image files in the input directory
-    image_files = [
-        f for f in os.listdir(input_dir) if f.endswith(".png") or f.endswith(".jpg")
-    ]
-
-    for image_file in tqdm(image_files):
-        input_path = os.path.join(input_dir, image_file)
-        output_path = os.path.join(output_dir, image_file)
-
-        # Open the image
-        img = Image.open(input_path)
-
-        # Resize the image
-        new_size = int(img.size[0] * resize_factor), int(img.size[1] * resize_factor)
-        img = img.resize(new_size, Image.LANCZOS)
-
-        # Save the resized image to the output directory
-        img.save(output_path, "PNG", optimize=True)
-
-
 def load_class(target):
     """loads a class using a target"""
     *module_name, class_name = target.split(".")

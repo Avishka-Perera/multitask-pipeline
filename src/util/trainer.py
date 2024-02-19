@@ -2,7 +2,7 @@ import torch
 import os, shutil
 from omegaconf import OmegaConf
 from omegaconf.listconfig import ListConfig
-from typing import Sequence, Dict, Literal
+from typing import Sequence, Dict
 import yaml
 from torch.utils.data import Subset, DataLoader
 from torch import autocast
