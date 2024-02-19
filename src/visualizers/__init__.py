@@ -1,0 +1,53 @@
+import numpy as np
+from abc import abstractmethod
+from typing import Dict, Sequence
+import random
+from torch import Tensor
+from torch.utils.tensorboard import SummaryWriter
+import matplotlib.pyplot as plt
+
+
+class BaseVisualizer:
+    def __init__(self, name: str, max_imgs_per_batch: int = None) -> None:
+        self.name = name
+        self.writer: SummaryWriter = None
+        self.max_imgs_per_batch = max_imgs_per_batch
+        self.global_step = 0
+
+    def set_writer(self, writer: SummaryWriter) -> None:
+        self.writer = writer
+
+    def _get_samples(self, window_width: int) -> Sequence[int]:
+        if (
+            self.max_imgs_per_batch is not None
+            and window_width > self.max_imgs_per_batch
+        ):
+            samples = list(range(window_width))
+            random.shuffle(samples)
+            samples = samples[: self.max_imgs_per_batch]
+            return sorted(samples)
+        else:
+            return range(window_width)
+
+    @abstractmethod
+    def __call__(
+        self,
+        info: Dict[str, Tensor],
+        batch: Dict[str, Tensor],
+        epoch: int,
+        loop: str,
+    ) -> None:
+        raise NotImplementedError()
+
+    def _output(self, visualization: np.ndarray, loop: str) -> None:
+        if self.writer is None:
+            plt.imshow(visualization)
+            plt.show()
+        else:
+            self.writer.add_images(
+                f"{self.name}/{loop}",
+                visualization,
+                self.global_step,
+                dataformats="HWC",
+            )
+            self.global_step += 1

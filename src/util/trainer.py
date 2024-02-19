@@ -13,6 +13,7 @@ from .logger import Logger
 from .util import (
     yaml_loader,
     load_class,
+    make_obj_from_conf,
     validate_keys,
     fix_list_len,
     load_config,
@@ -21,6 +22,7 @@ from .util import (
 from .reporting import history_to_csv, history_to_img
 from ..losses import BaseLoss
 from ..evaluators import BaseEvaluator
+from ..visualizers import BaseVisualizer
 from ..learners import BaseLearner
 from ..datasets import BaseDataset, ConcatSet
 from ..util.data import ParallelDataLoader
@@ -501,18 +503,16 @@ class Trainer:
                 self.evaluators[eval_nm] = eval_class(**params)
 
     def _load_visualizer(self) -> None:
-        self.visualizers: Dict[str, BaseEvaluator] = {}
+        self.visualizers: Dict[str, BaseVisualizer] = {}
         if "visualizers" in self.conf:
             for visu_nm, visu_conf in self.conf.visualizers.items():
-                visu_class = load_class(visu_conf.target)
-                params = dict(visu_conf.params) if "params" in visu_conf else {}
                 loops = (
                     visu_conf.loops
                     if "loops" in visu_conf
                     else ["train", "val", "test"]
                 )
                 self.visualizers[visu_nm] = {
-                    "obj": visu_class(logger=self.logger, name=visu_nm, **params),
+                    "obj": make_obj_from_conf(visu_conf, name=visu_nm),
                     "loops": loops,
                 }
 
@@ -776,7 +776,8 @@ class Trainer:
         if self.do_out:
             model = self.learner.module if self.is_ddp else self.learner
             self.logger.init_plotter(os.path.join(output_path, "logs"), model)
-
+            for vis in self.visualizers.values():
+                vis["obj"].set_writer(self.logger.writer)
             if self.do_test:
                 for nm, eval in self.evaluators.items():
                     eval.set_out_path(os.path.join(output_path, "evals", nm))
@@ -918,6 +919,11 @@ class Trainer:
             (*train_samplers, *val_samplers, *test_samplers),
         )
 
+    def _visualize(self, info: Dict, batch: Dict, epoch: int, loop: str):
+        for visu in self.visualizers.values():
+            if loop in visu["loops"]:
+                visu["obj"](info, batch, epoch, loop)
+
     def _train_loop(self, train_batch_count, show_pbar, epoch, train_dl):
         # train loop
         self.learner.train()
@@ -938,13 +944,8 @@ class Trainer:
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
-                    if (
-                        batch_id == train_batch_count - 1
-                        and self.visualizers is not None
-                    ):
-                        for visu in self.visualizers.values():
-                            if "train" in visu["loops"]:
-                                visu["obj"].process_batch(info, batch, epoch, "train")
+                    if batch_id == train_batch_count - 1:
+                        self._visualize(info, batch, epoch, "train")
                 train_losses.append(train_loss)
 
             for batch_id, batch in enumerate(train_dl):
@@ -975,15 +976,9 @@ class Trainer:
                     if self.do_out:
                         pbar.set_postfix(loss=cur_val_loss.detach().cpu().item())
                         pbar.update(1)
-                        if (
-                            batch_id == val_batch_count - 1
-                            and self.visualizers is not None
-                        ):
-                            for visu in self.visualizers.values():
-                                if "train" in visu["loops"]:
-                                    visu["obj"].process_batch(
-                                        info, batch, epoch, "train"
-                                    )
+                        if batch_id == val_batch_count - 1:
+                            self._visualize(info, batch, epoch, "val")
+
                         self.logger.plot(
                             "Loss (per epoch): Val",
                             f"EPOCH: {epoch}",
@@ -1027,10 +1022,8 @@ class Trainer:
                     for nm, eval in self.evaluators.items():
                         results[nm].append(eval.process_batch(batch=batch, info=info))
                     pbar.update()
-                    if batch_id == len(test_dl) - 1 and self.visualizers is not None:
-                        for visu in self.visualizers.values():
-                            if "train" in visu["loops"]:
-                                visu["obj"].process_batch(info, batch, epoch, "train")
+                    if batch_id == len(test_dl) - 1:
+                        self._visualize(info, batch, epoch, "test")
 
                 # gather all results at rank 0 replica
                 if self.is_ddp:

@@ -22,7 +22,7 @@ class Logger:
         self.logger = logging.getLogger()
         self.rank = rank
         self.display_info = self.logger.level != 0
-        self.plotter = None
+        self.writer: SummaryWriter = None
         self.data = {}
         self.iteration = 0
 
@@ -42,13 +42,13 @@ class Logger:
 
     # plotting
     def init_plotter(self, logdir, model, layers_per_plot=15):
-        self.plotter = SummaryWriter(logdir)
+        self.writer = SummaryWriter(logdir)
         self.gradient_analyzer = GradAnalyzer(
-            model, tb_writer=self.plotter, layers_per_plot=layers_per_plot
+            model, tb_writer=self.writer, layers_per_plot=layers_per_plot
         )
 
     def _plot_to_tb(self, card: str, val: float, glob_step: int) -> None:
-        self.plotter.add_scalar(card, val, glob_step)
+        self.writer.add_scalar(card, val, glob_step)
 
     def step(self, epoch, analyze_grad: bool = False):
         for k, v in self.data.items():
@@ -84,8 +84,8 @@ class Logger:
     def _plot_loss_pack_recursive(self, loss_pack, step, card, suffix):
         if card == "":
             card = "Total_Loss"
-        self.plotter.add_scalar(f"{card}/Total:{suffix}", loss_pack["tot"], step)
-        self.plotter.add_scalars(
+        self.writer.add_scalar(f"{card}/Total:{suffix}", loss_pack["tot"], step)
+        self.writer.add_scalars(
             f"{card}/Component_Losses:{suffix}", get_shallow_vals(loss_pack), step
         )
         if card == "Total_Loss":

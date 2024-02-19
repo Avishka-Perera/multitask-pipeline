@@ -108,6 +108,13 @@ def load_class(target):
     return cls
 
 
+def make_obj_from_conf(conf, **kwargs):
+    cls = load_class(conf["target"])
+    params = conf["params"] if "params" in conf else {}
+    obj = cls(**params, **kwargs)
+    return obj
+
+
 # loads scientific notations as float
 yaml_loader = yaml.SafeLoader
 yaml_loader.add_implicit_resolver(
