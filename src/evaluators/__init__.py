@@ -1,13 +1,13 @@
-from .classification import ClassificationEvaluator
 from ._base import BaseEvaluator
-from .segmentation import SegmentationEvaluator
-from .depth import DepthEvaluator
 from .flow import FlowEvaluator
+from .depth import DepthEvaluator
+from .classification import ClassificationEvaluator
+from .segmentation import SegmentationEvaluator
 
 __all__ = [
-    "ClassificationEvaluator",
     "BaseEvaluator",
-    "SegmentationEvaluator",
-    "DepthEvaluator",
     "FlowEvaluator",
+    "DepthEvaluator",
+    "ClassificationEvaluator",
+    "SegmentationEvaluator",
 ]

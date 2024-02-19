@@ -35,12 +35,16 @@ def make_random_nested_obj(conf):
             all([k in conf.keys() for k in ["type", "shape"]])
             and conf["type"] == "torch.Tensor"
         ):
-            tens = torch.randn(*conf["shape"])
-            if "min" in conf:
-                tens[tens < conf["min"]] = conf["min"]
-            if "max" in conf:
-                tens[tens > conf["max"]] = conf["max"]
-            return tens
+            if "unique" in conf:
+                tens = torch.from_numpy(np.random.choice(conf["unique"], conf["shape"]))
+                return tens
+            else:
+                tens = torch.randn(*conf["shape"])
+                if "min" in conf:
+                    tens[tens < conf["min"]] = conf["min"]
+                if "max" in conf:
+                    tens[tens > conf["max"]] = conf["max"]
+                return tens
         else:
             nested_tens = {}
             for k, sub_conf in conf.items():

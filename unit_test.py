@@ -13,6 +13,7 @@ from mt_pipe.src.test.external.models import test as test_models
 from mt_pipe.src.test.external.learners import test as test_learners
 from mt_pipe.src.test.external.losses import test as test_losses
 from mt_pipe.src.test.external.visualizers import test as test_visualizers
+from mt_pipe.src.test.external.evaluators import test as test_evaluators
 from mt_pipe.src.util import Logger
 import yaml
 from omegaconf import OmegaConf
@@ -106,7 +107,14 @@ if __name__ == "__main__":
 
     conf_paths = glob.glob(f"{args.conf_dir}/*.yaml")
     conf_names = [".".join(os.path.split(p)[1].split(".")[:-1]) for p in conf_paths]
-    valid_conf_names = ["datasets", "learners", "models", "losses", "visualizers"]
+    valid_conf_names = [
+        "datasets",
+        "learners",
+        "models",
+        "losses",
+        "visualizers",
+        "evaluators",
+    ]
     assert all(
         [n in valid_conf_names for n in conf_names]
     ), f"Invalid configuration file name"
@@ -130,4 +138,7 @@ if __name__ == "__main__":
                 logger.info()
             if conf_name == "visualizers":
                 test_visualizers(logger=logger, conf=conf, log_dir=args.log_dir)
+                logger.info()
+            if conf_name == "evaluators":
+                test_evaluators(logger=logger, conf=conf, log_dir=args.log_dir)
                 logger.info()
