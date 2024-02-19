@@ -1,5 +1,5 @@
 from ...util import Logger, load_class
-from .util import make_random_nested_tens, validate_nested_obj
+from .util import make_random_nested_obj, validate_nested_obj
 from omegaconf import OmegaConf
 
 
@@ -13,8 +13,8 @@ def test(logger: Logger, conf: OmegaConf, device: int) -> None:
         params = loss_conf.loss_fn.params if "params" in loss_conf.loss_fn else {}
         loss_fn = loss_cls(**params, device=device)
 
-        info = make_random_nested_tens(loss_conf.input_conf.info)
-        batch = make_random_nested_tens(loss_conf.input_conf.batch)
+        info = make_random_nested_obj(loss_conf.input_conf.info)
+        batch = make_random_nested_obj(loss_conf.input_conf.batch)
 
         loss_pack = loss_fn(info=info, batch=batch)
         none_mask = (

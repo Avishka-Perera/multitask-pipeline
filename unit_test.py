@@ -12,6 +12,7 @@ from mt_pipe.src.test.external.datasets import test as test_datasets
 from mt_pipe.src.test.external.models import test as test_models
 from mt_pipe.src.test.external.learners import test as test_learners
 from mt_pipe.src.test.external.losses import test as test_losses
+from mt_pipe.src.test.external.visualizers import test as test_visualizers
 from mt_pipe.src.util import Logger
 import yaml
 from omegaconf import OmegaConf
@@ -32,7 +33,7 @@ def parse_args():
             "learners",
             "losses",
             "evaluators",
-            "other",
+            "visualizers",
         ],
     )
     parser.add_argument(
@@ -70,6 +71,13 @@ def parse_args():
         help="The directory where test outputs will be saved",
     )
     parser.add_argument(
+        "-l",
+        "--log-dir",
+        type=str,
+        default="temp/logs",
+        help="The directory where test logs will be saved",
+    )
+    parser.add_argument(
         "--dataset-test-cnt",
         type=int,
         default=6,
@@ -98,7 +106,7 @@ if __name__ == "__main__":
 
     conf_paths = glob.glob(f"{args.conf_dir}/*.yaml")
     conf_names = [".".join(os.path.split(p)[1].split(".")[:-1]) for p in conf_paths]
-    valid_conf_names = ["datasets", "learners", "models", "losses"]
+    valid_conf_names = ["datasets", "learners", "models", "losses", "visualizers"]
     assert all(
         [n in valid_conf_names for n in conf_names]
     ), f"Invalid configuration file name"
@@ -119,4 +127,7 @@ if __name__ == "__main__":
                 logger.info()
             if conf_name == "losses":
                 test_losses(logger=logger, conf=conf, device=args.devices[0])
+                logger.info()
+            if conf_name == "visualizers":
+                test_visualizers(logger=logger, conf=conf, log_dir=args.log_dir)
                 logger.info()

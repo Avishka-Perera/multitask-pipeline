@@ -7,29 +7,44 @@ from omegaconf.listconfig import ListConfig
 from ...util import are_lists_equal, load_class
 
 
-def make_random_nested_tens(conf):
+def make_random_nested_obj(conf):
     if type(conf) == DictConfig or type(conf) == ListConfig:
         conf = OmegaConf.to_container(conf)
-
     if conf is None:
         return None
     elif type(conf) in [tuple, list] and all([type(v) == int for v in conf]):
-        return torch.Tensor(*conf)
+        return torch.randn(*conf)
     elif type(conf) in [tuple, list]:
         nested_tens = []
         for sub_conf in conf:
-            nested_tens.append(make_random_nested_tens(sub_conf))
+            nested_tens.append(make_random_nested_obj(sub_conf))
         return nested_tens
     elif type(conf) == dict:
-        if are_lists_equal(conf.keys(), ["type", "value"]):
-            if conf["type"] == "list":
+        if are_lists_equal(conf.keys(), ["type", "value"]) and conf["type"] in [
+            "str",
+            "int",
+            "float",
+            "list",
+        ]:
+            if conf["type"] in ["str", "int", "float"]:
+                return conf["value"]
+            elif conf["type"] == "list":
                 return list(conf["value"])
-            else:
-                raise ValueError("Invalid Tensor configuration")
+            raise ValueError("Invalid Tensor configuration")
+        elif (
+            all([k in conf.keys() for k in ["type", "shape"]])
+            and conf["type"] == "torch.Tensor"
+        ):
+            tens = torch.randn(*conf["shape"])
+            if "min" in conf:
+                tens[tens < conf["min"]] = conf["min"]
+            if "max" in conf:
+                tens[tens > conf["max"]] = conf["max"]
+            return tens
         else:
             nested_tens = {}
             for k, sub_conf in conf.items():
-                nested_tens[k] = make_random_nested_tens(sub_conf)
+                nested_tens[k] = make_random_nested_obj(sub_conf)
             return nested_tens
     else:
         raise ValueError("Invalid Tensor configuration")
