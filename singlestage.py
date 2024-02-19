@@ -8,7 +8,7 @@ if os.path.dirname(__file__) in sys.path:
 
 import argparse
 import ast
-from mt_pipe.src.util import Trainer
+from mt_pipe.src.util import Trainer, load_config, load_class
 from mt_pipe.src.util import set_all_seeds, Logger
 import torch
 from mt_pipe.src.util.ddp import setup, cleanup, spawn, is_port_available
@@ -34,7 +34,7 @@ def parse_args():
         "--replica-size",
         type=int,
         help="Number of devices to be used in a single replica",
-        default=2,
+        default=None,
     )
     parser.add_argument(
         "--use-amp",
@@ -173,6 +173,13 @@ if __name__ == "__main__":
         set_all_seeds(args.seed)
 
     replica_size = args.replica_size
+    if replica_size is None:
+        # load the replica size from the learner
+        conf = load_config(args.config)
+        learner_cls = load_class(conf.learner.target)
+        replica_size = learner_cls.device_count
+        args.replica_size = replica_size
+
     n_gpus = len(args.devices)
     assert (
         n_gpus >= replica_size
