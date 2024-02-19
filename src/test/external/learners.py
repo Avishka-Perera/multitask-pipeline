@@ -1,4 +1,4 @@
-from ...util import Logger, load_class
+from ...util import Logger, load_class, fix_list_len
 from .util import make_random_nested_tens, validate_nested_obj
 from omegaconf import OmegaConf
 from typing import Sequence
@@ -24,7 +24,11 @@ def test(logger: Logger, conf: OmegaConf, devices: Sequence[int]) -> None:
 
         learner_cls = load_class(ln_conf.learner.target)
         learner = learner_cls(**ln_params)
-        learner.set_devices(devices)
+        if len(devices) < learner.device_count:
+            new_devices = fix_list_len(devices, learner.device_count)
+            learner.set_devices(new_devices)
+        else:
+            learner.set_devices(devices)
 
         batch = make_random_nested_tens(ln_conf.input_conf)
         out = learner(batch=batch)
