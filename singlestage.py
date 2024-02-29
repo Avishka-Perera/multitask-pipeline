@@ -11,7 +11,7 @@ import ast
 from mt_pipe.src.util import Trainer, load_config, load_class
 from mt_pipe.src.util import set_all_seeds, Logger
 import torch
-from mt_pipe.src.util.dist import setup, cleanup
+from mt_pipe.src.util.dist import setup, cleanup, get_is_dist
 from mt_pipe.src.constants import analysis_levels, log_levels
 import logging
 
@@ -119,47 +119,58 @@ def parse_args():
         help="File describing the map of weights",
         default=None,
     )
+    parser.add_argument(
+        "--use-amp",
+        action="store_true",
+        default=False,
+        help="Use mixed precision for training",
+    )
 
-    # sharding
-    parser.add_argument(
-        "--mixed-prec",
-        action="store_true",
-        help="Train in mixed precision. This reduces the memory footprint and increase the training speed, but might increase the number of epochs needed for model convergence. Might reduce the model accuracy a very very small amount",
-    )
-    parser.add_argument(
-        "--checkpointing",
-        action="store_true",
-        help="Enables gradient checkpointing. Can expect to see 20%-25% training slow down, but will free up 33%-38% GPU memory",
-    )
-    parser.add_argument(
-        "--sharding-strategy",
-        type=int,
-        default=1,
-        help="Sharding strategy to be used. 0: FULL_SHARD, 1: HYBRID_SHARD, 2: SHARD_GRAD_OP, 3: NO_SHARD. Lower the value; lower the memory usage, lower the performance",
-        choices=[0, 1, 2, 3],
-    )
-    parser.add_argument(
-        "--prefetch-policy",
-        type=int,
-        default=2,
-        help="Sharding strategy to be used. 0: None, 1: BACKWARD_POST, 2: BACKWARD_PRE. Lower the value; lower the memory usage, lower the performance",
-        choices=[0, 1, 2],
-    )
+    # # sharding
+    # parser.add_argument(
+    #     "--mixed-prec",
+    #     action="store_true",
+    #     help="Train in mixed precision. This reduces the memory footprint and increase the training speed, but might increase the number of epochs needed for model convergence. Might reduce the model accuracy a very very small amount",
+    # )
+    # parser.add_argument(
+    #     "--checkpointing",
+    #     action="store_true",
+    #     help="Enables gradient checkpointing. Can expect to see 20%-25% training slow down, but will free up 33%-38% GPU memory",
+    # )
+    # parser.add_argument(
+    #     "--sharding-strategy",
+    #     type=int,
+    #     default=1,
+    #     help="Sharding strategy to be used. 0: FULL_SHARD, 1: HYBRID_SHARD, 2: SHARD_GRAD_OP, 3: NO_SHARD. Lower the value; lower the memory usage, lower the performance",
+    #     choices=[0, 1, 2, 3],
+    # )
+    # parser.add_argument(
+    #     "--prefetch-policy",
+    #     type=int,
+    #     default=2,
+    #     help="Sharding strategy to be used. 0: None, 1: BACKWARD_POST, 2: BACKWARD_PRE. Lower the value; lower the memory usage, lower the performance",
+    #     choices=[0, 1, 2],
+    # )
 
     args = parser.parse_args()
     return args
 
 
 def main(args):
-    # local_rank = int(os.environ["LOCAL_RANK"])  # device
-    # rank = int(os.environ["RANK"])
-    # world_size = int(os.environ["WORLD_SIZE"])
+    is_dist = get_is_dist()
+    rank, local_rank, world_size = is_dist
 
-    logger = Logger(args.verbose)
-    # setup()
+    if is_dist:
+        setup()
+        logger = Logger(args.verbose, rank)
+    else:
+        logger = Logger(args.verbose)
 
-    # setup mp_model and devices for the process
-    devices = [args.devices[i] for i in range(args.replica_size)]
+    # setup devices for the process
+    devices = [
+        args.devices[i + local_rank * args.replica_size]
+        for i in range(args.replica_size)
+    ]
 
     trainer = Trainer(
         conf=args.config,
@@ -169,9 +180,7 @@ def main(args):
             "ckpt_map_conf_path": args.ckpt_map_conf_path,
         },
         devices=devices,
-        # rank=rank,
-        # world_size=world_size,
-        # use_amp=args.use_amp,
+        use_amp=args.use_amp,
         logger=logger,
         analysis_level=args.analysis_level,
     )
@@ -185,7 +194,8 @@ def main(args):
         force_resume=args.force_resume,
     )
 
-    # cleanup()
+    if is_dist:
+        cleanup()
 
 
 if __name__ == "__main__":

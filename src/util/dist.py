@@ -3,6 +3,8 @@ import torch
 import torch.distributed as dist
 from torch.distributed.fsdp import MixedPrecision
 from typing import Tuple
+from looseversion import LooseVersion
+from torch.cuda.amp import GradScaler
 
 
 def get_is_dist() -> bool | Tuple[int, int, int]:
@@ -13,7 +15,6 @@ def get_is_dist() -> bool | Tuple[int, int, int]:
 
 
 def setup():
-    # initialize the process group
     dist.init_process_group("nccl")
 
 
@@ -34,3 +35,18 @@ fpSixteen = MixedPrecision(
     reduce_dtype=torch.float16,  # Gradient communication precision
     buffer_dtype=torch.float16,  # Buffer precision
 )
+
+
+def get_mixed_prec():
+    bf16_ready = (
+        torch.version.cuda
+        and torch.cuda.is_bf16_supported()
+        and LooseVersion(torch.version.cuda) >= "11.0"
+        and dist.is_nccl_available()
+        and torch.cuda.nccl.version() >= (2, 10)
+    )
+
+    if bf16_ready:
+        return torch.bfloat16, None
+    else:
+        return torch.float16, GradScaler()

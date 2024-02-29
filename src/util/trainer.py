@@ -20,7 +20,7 @@ from .util import (
     load_model_states,
     are_lists_equal,
 )
-from .dist import get_is_dist
+from .dist import get_is_dist, get_mixed_prec
 from .reporting import history_to_csv, history_to_img
 from ..losses import BaseLoss
 from ..evaluators import BaseEvaluator
@@ -33,9 +33,9 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import LRScheduler
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
 import gc
 from functools import partial, reduce
-from torch.cuda.amp import GradScaler
 
 
 def validate_conf(
@@ -370,14 +370,11 @@ class Trainer:
             devices = get_correct_device_lst(devices, learner_class.device_count)
         self.logger.info(f"Learner: using devices: {devices}")
 
-        # if self.is_ddp:
-        #     self.learner = DDP(learner)
-        #     self.learner.module.set_devices(devices)
-        # else:
-        #     self.learner = learner
-        #     self.learner.set_devices(devices)
-        self.learner = learner
-        self.learner.set_devices(devices)
+        learner.set_devices(devices)
+        if self.is_dist:
+            self.learner = DDP(learner, device_ids=devices)
+        else:
+            self.learner = learner
 
     def _load_states(self, ckpt_path: str, ckpt_map_conf_path: str = None) -> None:
         ckpt = torch.load(ckpt_path)
@@ -388,8 +385,7 @@ class Trainer:
             ckpt_map_info = None
 
         # load learner
-        # learner = self.learner.module if self.is_ddp else self.learner
-        learner = self.learner
+        learner = self.learner.module if self.is_dist else self.learner
         sd = ckpt["learner"]
         if ckpt_map_conf_path is None or "learner" not in ckpt_map_info:
             if hasattr(learner, "load_ckeckpoint"):
@@ -476,6 +472,10 @@ class Trainer:
                 self.lr_scheduler = None
                 self.logger.info("Not using any scheduler")
 
+            if self.use_amp:
+                self.mp_dtype, self.scaler = get_mixed_prec()
+                self.logger.info(f"Using AMP with dtype {self.mp_dtype}")
+
     def _validate_conf(self):
         validate_conf(
             conf=self.conf,
@@ -512,9 +512,9 @@ class Trainer:
         data_dir: str,
         weights_conf: Dict[str, str],
         devices: Sequence[str | int],
-        # use_amp: bool = False,
-        logger: Logger = None,
-        analysis_level: int = 1,
+        use_amp: bool,
+        logger: Logger,
+        analysis_level: int,
     ) -> None:
         if type(conf) == str:
             with open(conf) as handler:
@@ -558,6 +558,7 @@ class Trainer:
         self._load_loss()
         self._load_evaluator()
         self._load_visualizer()
+        self.use_amp = use_amp
         self._load_training_objects()
         self.ckpts = (
             {ckpt.epoch: ckpt.name for ckpt in self.conf.checkpoints}
@@ -566,11 +567,6 @@ class Trainer:
         )
         self.analysis_level = analysis_level
 
-        # self.use_amp = use_amp
-        # self.scaler = GradScaler() if use_amp else None
-        # if use_amp:
-        #     self.logger.info("Using AMP")
-
     def val_step(
         self,
         batch: Sequence[torch.Tensor] | Dict[str, Sequence[torch.Tensor]],
@@ -578,13 +574,13 @@ class Trainer:
         batch_id: int,
         batch_count: int,
     ) -> torch.Tensor:
-        # if self.use_amp:
-        #     with autocast(device_type="cuda", dtype=torch.float16):
-        #         info = self.learner(batch)
-        #         loss_pack = self.val_loss_fn(info=info, batch=batch)
-        # else:
-        #     info = self.learner(batch)
-        #     loss_pack = self.val_loss_fn(info=info, batch=batch)
+        if self.use_amp:
+            with autocast(device_type="cuda", dtype=self.mp_dtype):
+                info = self.learner(batch)
+                loss_pack = self.val_loss_fn(info=info, batch=batch)
+        else:
+            info = self.learner(batch)
+            loss_pack = self.val_loss_fn(info=info, batch=batch)
         info = self.learner(batch)
         loss_pack = self.val_loss_fn(info=info, batch=batch)
         tot_loss = loss_pack["tot"]
@@ -603,25 +599,20 @@ class Trainer:
     ) -> float:
         self.optimizer.zero_grad()
 
-        # if self.use_amp:
-        #     with autocast(device_type="cuda", dtype=torch.float16):
-        #         info = self.learner(batch)
-        #         loss_pack = self.train_loss_fn(info=info, batch=batch)
-        #     tot_loss = loss_pack["tot"]
-        #     self.scaler.scale(tot_loss).backward()
-        #     self.scaler.step(self.optimizer)
-        #     self.scaler.update()
-        # else:
-        #     info = self.learner(batch)
-        #     loss_pack = self.train_loss_fn(info=info, batch=batch)
-        #     tot_loss = loss_pack["tot"]
-        #     tot_loss.backward()
-        #     self.optimizer.step()
-        info = self.learner(batch)
-        loss_pack = self.train_loss_fn(info=info, batch=batch)
-        tot_loss = loss_pack["tot"]
-        tot_loss.backward()
-        self.optimizer.step()
+        if self.use_amp:
+            with autocast(device_type="cuda", dtype=self.mp_dtype):
+                info = self.learner(batch)
+                loss_pack = self.train_loss_fn(info=info, batch=batch)
+            tot_loss = loss_pack["tot"]
+            self.scaler.scale(tot_loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            info = self.learner(batch)
+            loss_pack = self.train_loss_fn(info=info, batch=batch)
+            tot_loss = loss_pack["tot"]
+            tot_loss.backward()
+            self.optimizer.step()
 
         if self.lr_scheduler:
             self.lr_scheduler.step(epoch + (batch_id + 1) / batch_count)
@@ -638,12 +629,11 @@ class Trainer:
     def _save_ckpt(self, epoch, output_path, status, history=None):
         # checkpoints
         ckpt_path = os.path.join(output_path, "ckpts", status + ".ckpt")
-        # learner_state = (
-        #     self.learner.module.state_dict()
-        #     if type(self.learner) == DDP
-        #     else self.learner.state_dict()
-        # )
-        learner_state = self.learner.state_dict()
+        learner_state = (
+            self.learner.module.state_dict()
+            if self.is_dist
+            else self.learner.state_dict()
+        )
         optim_state = self.optimizer.state_dict()
         lr_scheduler_state = (
             None if self.lr_scheduler is None else self.lr_scheduler.state_dict()
@@ -668,11 +658,10 @@ class Trainer:
         optim_state = ckpts["optimizer"]
         lr_scheduler_state = ckpts["lr_scheduler"]
         epoch = ckpts["epoch"]
-        # if type(self.learner) == DDP:
-        #     self.learner.module.load_state_dict(learner_state)
-        # else:
-        #     self.learner.load_state_dict(learner_state)
-        self.learner.load_state_dict(learner_state)
+        if self.is_dist:
+            self.learner.module.load_state_dict(learner_state)
+        else:
+            self.learner.load_state_dict(learner_state)
         self.optimizer.load_state_dict(optim_state)
         if self.lr_scheduler is not None and lr_scheduler_state is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state)
@@ -698,8 +687,8 @@ class Trainer:
                 self.logger.warn(f"Removing existing files at '{output_path}'")
                 shutil.rmtree(output_path)
 
-        # if self.is_ddp:
-        #     dist.barrier()
+        if self.is_dist:
+            dist.barrier()
 
         if self.do_out:
             os.makedirs(os.path.join(output_path, "ckpts"))
@@ -778,8 +767,7 @@ class Trainer:
             best_epoch = -1
 
         if self.do_out:
-            # model = self.learner.module if self.is_ddp else self.learner
-            model = self.learner
+            model = self.learner.module if self.is_dist else self.learner
             self.logger.init_plotter(os.path.join(output_path, "logs"), model)
             for vis in self.visualizers.values():
                 vis["obj"].set_writer(self.logger.writer)
@@ -861,21 +849,19 @@ class Trainer:
                 else:
                     new_loader_params["collate_fn"] = func
 
-            # if self.is_ddp:
-            #     if "sampler" in loader_params:
-            #         sampler_class = load_class(loader_params.sampler.target)
-            #     else:
-            #         sampler_class = DistributedSampler
-            #     new_loader_params["sampler"] = sampler_class(
-            #         ds, self.world_size, self.rank
-            #     )
-            # else:
-            #     if "sampler" in loader_params:
-            #         raise NotImplementedError(
-            #             "Custom sampler usage is not implemented for non-DDP setups"
-            #         )
-            if "sampler" in loader_params:
-                raise NotImplementedError("Custom sampler usage is not implemented")
+            if self.is_dist:
+                if "sampler" in loader_params:
+                    sampler_class = load_class(loader_params.sampler.target)
+                else:
+                    sampler_class = DistributedSampler
+                new_loader_params["sampler"] = sampler_class(
+                    ds, self.world_size, self.rank
+                )
+            else:
+                if "sampler" in loader_params:
+                    raise NotImplementedError(
+                        "Custom sampler usage is not implemented for non-DDP setups"
+                    )
 
             return new_loader_params
 
@@ -998,13 +984,12 @@ class Trainer:
                     val_loss = process_batch(batch, batch_id, val_loss)
                 val_loss /= val_batch_count
 
-        # if self.is_ddp:
-        #     val_loss = val_loss.detach().cpu()
-        #     dist.all_reduce(val_loss, dist.ReduceOp.SUM)
-        #     val_loss = val_loss.item() / self.world_size
-        # else:
-        #     val_loss = val_loss.detach().cpu().item()
-        val_loss = val_loss.detach().cpu().item()
+        if self.is_dist:
+            val_loss = val_loss.detach().cpu()
+            dist.all_reduce(val_loss, dist.ReduceOp.SUM)
+            val_loss = val_loss.item() / self.world_size
+        else:
+            val_loss = val_loss.detach().cpu().item()
 
         return val_loss
 
@@ -1021,12 +1006,11 @@ class Trainer:
 
                 results = {nm: [] for nm in self.evaluators.keys()}
                 for batch_id, batch in enumerate(test_dl):
-                    # if self.use_amp:
-                    #     with autocast(device_type="cuda", dtype=torch.float16):
-                    #         info = self.learner(batch)
-                    # else:
-                    #     info = self.learner(batch)
-                    info = self.learner(batch)
+                    if self.use_amp:
+                        with autocast(device_type="cuda", dtype=self.mp_dtype):
+                            info = self.learner(batch)
+                    else:
+                        info = self.learner(batch)
 
                     for nm, eval in self.evaluators.items():
                         results[nm].append(eval.process_batch(batch=batch, info=info))
@@ -1035,20 +1019,20 @@ class Trainer:
                         self._visualize(info, batch, epoch, "test")
 
                 # # gather all results at rank 0 replica
-                # if self.is_ddp:
-                #     all_results = [None for _ in range(self.world_size)]
+                if self.is_dist:
+                    all_results = [None for _ in range(self.world_size)]
 
-                #     if self.rank == 0:
-                #         dist.gather_object(results, all_results)
-                #     else:
-                #         dist.gather_object(results)
+                    if self.rank == 0:
+                        dist.gather_object(results, all_results)
+                    else:
+                        dist.gather_object(results)
 
-                #     if self.rank == 0:
-                #         results = reduce(
-                #             lambda i, res: {k: v + res[k] for k, v in i.items()},
-                #             all_results,
-                #             {k: [] for k in all_results[0].keys()},
-                #         )
+                    if self.rank == 0:
+                        results = reduce(
+                            lambda i, res: {k: v + res[k] for k, v in i.items()},
+                            all_results,
+                            {k: [] for k in all_results[0].keys()},
+                        )
 
                 # output the results
                 if self.do_out:
@@ -1097,6 +1081,7 @@ class Trainer:
         force_resume: bool = False,
         show_pbar=True,
     ) -> None:
+
         output_path, min_loss, start_epoch, best_epoch, history = self._init_fit(
             output_path, run_name, resume_dir, force_resume
         )
@@ -1144,8 +1129,8 @@ class Trainer:
                 else:
                     val_loss = None
 
-                # if self.is_ddp:
-                #     dist.barrier()
+                if self.is_dist:
+                    dist.barrier()
 
                 # save extra checkpoints if specified
                 if epoch in self.ckpts.keys():
@@ -1199,11 +1184,10 @@ class Trainer:
                     sd = torch.load(best_ckpt_path)["learner"]
                 else:
                     sd = torch.load(final_ckpt_path)["learner"]
-                # if self.is_ddp:
-                #     self.learner.module.load_state_dict(sd)
-                # else:
-                #     self.learner.load_state_dict(sd)
-                self.learner.load_state_dict(sd)
+                if self.is_dist:
+                    self.learner.module.load_state_dict(sd)
+                else:
+                    self.learner.load_state_dict(sd)
 
             self._test_loop(show_pbar=show_pbar, epoch=epoch, test_dl=test_dl)
 
