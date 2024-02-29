@@ -6,7 +6,7 @@ from mt_pipe.src.evaluators import BaseEvaluator
 from matplotlib import cm, colors
 from skimage import measure
 from PIL import Image
-
+import numpy as np
 
 class SegmentationEvaluator(BaseEvaluator):
     def __init__(self, out_path: str = None, batch_img_key: str = "img") -> None:
@@ -32,60 +32,60 @@ class SegmentationEvaluator(BaseEvaluator):
         rgb_image = rgba_image[:, :, :3]
         return rgb_image
 
-    def _visualize_segmentation(self, img, seg_lbl, seg_prd, seg_id):
-        seg_lbl = seg_lbl
-        gt_binary_mask = np.zeros_like(seg_lbl)
-        gt_binary_mask[seg_lbl == seg_id] = 1
+    # def __visualize_segmentation(self, img, seg_lbl, seg_prd, seg_id):
+    #     seg_lbl = seg_lbl
+    #     gt_binary_mask = np.zeros_like(seg_lbl)
+    #     gt_binary_mask[seg_lbl == seg_id] = 1
 
-        # seg_prd = seg_prd
-        pd_binary_mask = np.zeros_like(seg_prd)
-        pd_binary_mask[seg_prd == seg_id] = 1
+    #     # seg_prd = seg_prd
+    #     pd_binary_mask = np.zeros_like(seg_prd)
+    #     pd_binary_mask[seg_prd == seg_id] = 1
 
-        if img.shape[-1] == 1:
-            img = self._gray2rgb(img.squeeze())
+    #     if img.shape[-1] == 1:
+    #         img = self._gray2rgb(img.squeeze())
 
-        # predicted regions
-        transparency = 0.3
-        for i in [1, 2]:
-            img[:, :, i][pd_binary_mask == 1] = (
-                img[:, :, i][pd_binary_mask > 0] * (1 - transparency)
-                + pd_binary_mask[pd_binary_mask > 0] * transparency
-            )
-        for i in [0]:
-            img[:, :, i][pd_binary_mask == 1] = img[:, :, i][pd_binary_mask > 0] * (
-                1 - transparency
-            )
+    #     # predicted regions
+    #     transparency = 0.3
+    #     for i in [1, 2]:
+    #         img[i, :, :][pd_binary_mask == 1] = (
+    #             img[i, :, :][pd_binary_mask > 0] * (1 - transparency)
+    #             + pd_binary_mask[pd_binary_mask > 0] * transparency
+    #         )
+    #     for i in [0]:
+    #         img[i, :, :][pd_binary_mask == 1] = img[i, :, :][pd_binary_mask > 0] * (
+    #             1 - transparency
+    #         )
 
-        # ground truth borders
-        contours = measure.find_contours(gt_binary_mask, 0.5)
-        for contour in contours:
-            contour = np.round(contour).astype(int)
-            img[contour[:, 0], contour[:, 1], 2] = 0
-            img[contour[:, 0], contour[:, 1], 0:2] = 1
-        img = (img * 255).astype(np.uint8)
+    #     # ground truth borders
+    #     contours = measure.find_contours(gt_binary_mask, 0.5)
+    #     for contour in contours:
+    #         contour = np.round(contour).astype(int)
+    #         img[contour[:, 0], contour[:, 1], 2] = 0
+    #         img[contour[:, 0], contour[:, 1], 0:2] = 1
+    #     img = (img * 255).astype(np.uint8)
 
-        return img
+    #     return img
 
     def process_batch(
         self, batch: Dict[str, torch.Tensor], info: Dict[str, torch.Tensor]
     ) -> None:
         logits = info["logits"].cpu().detach().numpy()
-        logits = logits.argmax(axis=1)
+        # logits = logits.argmax(axis=1)
         labels = batch["seg"].cpu().detach().numpy()
         images = batch[self.batch_img_key].cpu().detach().numpy()
         labels = labels.squeeze()
         total_intersec, total_union = 0, 0
-        for ind in np.unique(labels):
-            labels_mask = np.zeros(labels.shape)
-            labels_mask[labels == ind] = 1
-            logits_mask = np.zeros(labels.shape)
-            logits_mask[logits == ind] = 1
-            intersection_mask = np.logical_and(labels_mask, logits_mask)
-            union_mask = np.logical_or(labels_mask, logits_mask)
-            intersect = intersection_mask.sum()
-            union = union_mask.sum()
-            total_intersec += intersect
-            total_union += union
+
+        labels_mask = np.zeros(labels.shape)
+        labels_mask[labels > 0.5 ] = 1
+        logits_mask = np.zeros(labels.shape)
+        logits_mask[logits > 0.5] = 1
+        intersection_mask = np.logical_and(labels_mask, logits_mask)
+        union_mask = np.logical_or(labels_mask, logits_mask)
+        intersect = intersection_mask.sum()
+        union = union_mask.sum()
+        total_intersec += intersect
+        total_union += union
 
         imgs = []
         for i in range(len(images)):
@@ -95,6 +95,14 @@ class SegmentationEvaluator(BaseEvaluator):
             imgs.append(img)
 
         return {"intersec": total_intersec, "union": total_union, "imgs": imgs}
+    
+    def _visualize_segmentation(self, img, seg_lbl, segmentation_maps ,seg_id):
+        segmentation_maps = np.asarray(segmentation_maps)
+        colormap = np.random.rand(80, 3)
+        masked_clormap = np.ones((*segmentation_maps.shape, 3)) * colormap[:, None, None] * segmentation_maps[:,:,:,None]  #128,128,3 x 3 x 
+        img1 = masked_clormap.sum(axis=(0))
+        conc = np.concatenate([img.transpose(1, 2, 0), img1], 1)
+        return conc
 
     def _save_report(self, iou: float) -> str:
         report = f"IoU: {iou}"
@@ -105,6 +113,8 @@ class SegmentationEvaluator(BaseEvaluator):
 
     def _export_imgs(self, imgs):
         for i, img in enumerate(imgs):
+            if img.dtype != np.uint8:
+                img = (img * 255).astype(np.uint8)
             img = Image.fromarray(img)
             img.save(os.path.join(self.vis_path, f"{i}.jpg"))
 
