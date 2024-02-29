@@ -1,6 +1,15 @@
+import os
 import torch
 import torch.distributed as dist
 from torch.distributed.fsdp import MixedPrecision
+from typing import Tuple
+
+
+def get_is_dist() -> bool | Tuple[int, int, int]:
+    if all([k in os.environ for k in ["RANK", "LOCAL_RANK", "WORLD_SIZE"]]):
+        return [int(os.environ[k]) for k in ["RANK", "LOCAL_RANK", "WORLD_SIZE"]]
+    else:
+        return False
 
 
 def setup():

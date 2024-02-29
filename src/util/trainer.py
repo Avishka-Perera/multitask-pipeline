@@ -18,7 +18,9 @@ from .util import (
     fix_list_len,
     load_config,
     load_model_states,
+    are_lists_equal,
 )
+from .dist import get_is_dist
 from .reporting import history_to_csv, history_to_img
 from ..losses import BaseLoss
 from ..evaluators import BaseEvaluator
@@ -26,7 +28,6 @@ from ..visualizers import BaseVisualizer
 from ..learners import BaseLearner
 from ..datasets import BaseDataset, ConcatSet
 from .data import ParallelDataLoader
-from .util import are_lists_equal
 from torch.utils.data import Dataset
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LRScheduler
@@ -35,43 +36,6 @@ from torch.utils.data.distributed import DistributedSampler
 import gc
 from functools import partial, reduce
 from torch.cuda.amp import GradScaler
-
-import os
-import argparse
-import torch
-import torch.nn.functional as F
-import torch.optim as optim
-from transformers import T5Tokenizer, T5ForConditionalGeneration
-from functools import partial
-from torch.optim.lr_scheduler import StepLR
-import torch.nn.functional as F
-import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler
-from transformers.models.t5.modeling_t5 import T5Block
-from looseversion import LooseVersion
-from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-    checkpoint_wrapper,
-    CheckpointImpl,
-    apply_activation_checkpointing,
-)
-from torch.distributed.fsdp import (
-    FullyShardedDataParallel as FSDP,
-    MixedPrecision,
-    BackwardPrefetch,
-    ShardingStrategy,
-    FullStateDictConfig,
-    StateDictType,
-)
-from torch.distributed.fsdp.wrap import (
-    _module_wrap_policy,
-)
-from summarization_dataset import WikiHow, load_dataset
-from transformers.models.t5.modeling_t5 import T5Block
-import time
-from datetime import datetime
-from torch.distributed.fsdp.sharded_grad_scaler import (
-    ShardedGradScaler,
-)  # needed if using the torch.float16 precision
 
 
 def validate_conf(
@@ -548,8 +512,6 @@ class Trainer:
         data_dir: str,
         weights_conf: Dict[str, str],
         devices: Sequence[str | int],
-        # rank: int = None,
-        # world_size: int = 1,
         # use_amp: bool = False,
         logger: Logger = None,
         analysis_level: int = 1,
@@ -566,11 +528,17 @@ class Trainer:
         self.conf = omegaconf.OmegaConf.create(dict_conf)
         self.data_dir = data_dir
         self.devices = devices
-        # self.is_ddp = rank is not None
-        # self.rank = rank
-        # self.world_size = world_size
-        # self.do_out = self.rank == 0 or self.rank is None
-        self.do_out = True
+
+        is_dist = get_is_dist()
+        if is_dist:
+            self.is_dist = True
+            self.rank, self.local_rank, self.world_size = is_dist
+            self.do_out = self.rank == 0
+        else:
+            self.is_dist = False
+            self.rank, self.local_rank, self.world_size = 0, 0, 1
+            self.do_out = True
+
         self.logger = Logger(0) if logger is None else logger
         self._validate_conf()
         self.do_train = "train" in self.conf.keys()
@@ -1222,7 +1190,8 @@ class Trainer:
                 gc.collect(2)
                 torch.cuda.empty_cache()
 
-            dist.barrier()
+            if self.is_dist:
+                dist.barrier()
 
         if self.do_test:
             if self.do_train:
