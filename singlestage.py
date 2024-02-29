@@ -156,9 +156,9 @@ def parse_args():
     return args
 
 
-def main(args):
-    is_dist = get_is_dist()
-    rank, local_rank, world_size = is_dist
+def main(args, dist_pack):
+    is_dist = dist_pack != False
+    rank, local_rank, world_size = dist_pack
 
     if is_dist:
         setup()
@@ -212,13 +212,12 @@ if __name__ == "__main__":
         replica_size = learner_cls.device_count
         args.replica_size = replica_size
 
-    n_gpus = len(args.devices)
-    assert (
-        n_gpus >= replica_size
-    ), f"Requires at least {replica_size} GPUs to run, but got {n_gpus}"
-    world_size = n_gpus // replica_size
-    if args.verbose != 0:
-        logger = logging.getLogger()
-        logger.info(f"replica_size: {replica_size}, world_size: {world_size}")
+    is_dist = get_is_dist()
+    if is_dist:
+        rank, local_rank, world_size = is_dist
+        n_gpus = len(args.devices)
+        assert (
+            n_gpus >= world_size * replica_size
+        ), f"Instantiated number of processes ({world_size}) are too much for the provided GPU devices ({n_gpus}) with the current replica_size ({replica_size})"
 
-    main(args)
+    main(args, is_dist)
