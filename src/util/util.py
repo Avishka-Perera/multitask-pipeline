@@ -31,6 +31,10 @@ def are_lists_equal(lst1, lst2):
     return len(new_lst2) == 0
 
 
+def is_super_list(list1, list2):
+    return set(list1) >= set(list2)
+
+
 def open_network_img(url: str) -> Image:
     res = requests.get(url)
     if res.status_code == 200:

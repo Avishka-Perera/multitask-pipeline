@@ -4,7 +4,7 @@ from typing import Tuple
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 from omegaconf.listconfig import ListConfig
-from ...util import are_lists_equal, load_class
+from ...util import are_lists_equal, is_super_list, load_class
 
 
 def make_random_nested_obj(conf):
@@ -106,10 +106,22 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
                                 uniques = np.unique(obj)
                             else:
                                 uniques = obj.unique()
-                            if not are_lists_equal(list(conf.unique), list(uniques)):
+                            if not are_lists_equal(list(conf.unique), uniques.tolist()):
                                 return (
                                     False,
-                                    f"Uniques dose not match. Key: {key_lead}. Expected: {conf['unique']}, Found: {uniques}",
+                                    f"Uniques dose not match. Key: {key_lead}. Expected: {conf['unique']}, Found: {uniques.tolist()}",
+                                )
+                        if "unique_range" in conf:
+                            if type(obj) == np.ndarray:
+                                uniques = np.unique(obj)
+                            else:
+                                uniques = obj.unique()
+                            if not is_super_list(
+                                list(range(*conf.unique_range)), uniques.tolist()
+                            ):
+                                return (
+                                    False,
+                                    f"Unique range dose not match. Key: {key_lead}. Expected: range{tuple(conf['unique_range'])}, Found: {uniques.tolist()}",
                                 )
 
                         return True, "Valid"

@@ -1,5 +1,6 @@
 from .util import (
     are_lists_equal,
+    is_super_list,
     open_network_img,
     images_to_gif,
     load_class,
@@ -21,6 +22,7 @@ from .learner_mux import LearnerMux
 
 __all__ = [
     "are_lists_equal",
+    "is_super_list",
     "open_network_img",
     "images_to_gif",
     "load_class",
