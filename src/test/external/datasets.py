@@ -30,7 +30,12 @@ def test(logger: Logger, conf: OmegaConf, test_cnt: int) -> None:
                 assert valid, msg
 
     for ds_name, conf in conf.items():
-        logger.info(f"Testing {ds_name}...")
+        ds_count = (
+            len(conf.splits) * len(conf.root)
+            if type(conf.root) == ListConfig
+            else len(conf.splits)
+        )
+        logger.info(f"Testing {ds_name}({ds_count})...")
         cls = load_class(conf.target)
         params = conf.params if "params" in conf else {}
         for split in conf.splits:
