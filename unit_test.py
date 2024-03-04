@@ -59,6 +59,18 @@ def parse_args():
         help="The data root",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Batch size for the full dataset testing. If not specified, dataset-test-cnt number of samples will be randomly picked",
+    )
+    parser.add_argument(
+        "--dataset-test-cnt",
+        type=int,
+        default=6,
+        help="Number of samples to randomly select from a dataset",
+    )
+    parser.add_argument(
         "--model-dir",
         type=str,
         default="models",
@@ -77,12 +89,6 @@ def parse_args():
         type=str,
         default="temp/logs",
         help="The directory where test logs will be saved",
-    )
-    parser.add_argument(
-        "--dataset-test-cnt",
-        type=int,
-        default=6,
-        help="Number of samples to randomly select from a dataset",
     )
     parser.add_argument(
         "-r",
@@ -125,7 +131,12 @@ if __name__ == "__main__":
 
         if args.mode in ["all", conf_name]:
             if conf_name == "datasets":
-                test_datasets(logger=logger, conf=conf, test_cnt=args.dataset_test_cnt)
+                test_datasets(
+                    logger=logger,
+                    conf=conf,
+                    test_cnt=args.dataset_test_cnt,
+                    batch_size=args.batch_size,
+                )
                 logger.info()
             if conf_name == "models":
                 test_models(logger=logger, conf=conf)

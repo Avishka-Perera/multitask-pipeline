@@ -3,7 +3,8 @@ from omegaconf.listconfig import ListConfig
 from ...util import Logger, load_class
 from .util import validate_nested_obj
 import numpy as np
-from torch.utils.data import Dataset, Subset
+from torch.utils.data import Dataset, Subset, DataLoader
+from tqdm import tqdm
 
 
 def get_test_subset(ds: Dataset, test_cnt: int, batch_size: int = None) -> Subset:
@@ -17,17 +18,36 @@ def get_test_subset(ds: Dataset, test_cnt: int, batch_size: int = None) -> Subse
     return ds
 
 
-def test(logger: Logger, conf: OmegaConf, test_cnt: int) -> None:
+def reshape4batch(conf, batch_size):
+    new_conf = OmegaConf.create()
+    for k, v in conf.items():
+        if k == "shape" and isinstance(v, ListConfig):
+            new_conf[k] = [batch_size, *v]
+        elif any([isinstance(v, cls) for cls in [int, float, str, ListConfig]]):
+            new_conf[k] = v
+        else:
+            new_conf[k] = reshape4batch(v, batch_size)
+    return new_conf
+
+
+def test(logger: Logger, conf: OmegaConf, test_cnt: int, batch_size: int) -> None:
     logger.info("Testing Datasets...")
 
     def validate_single(root, split, params, sample_conf):
         ds = cls(root=root, split=split, **params)
         assert len(ds) > 0, "Dataset length cannot be 0"
         if "sample_conf" in conf:
-            ds = get_test_subset(ds, test_cnt)
-            for sample in ds:
-                valid, msg = validate_nested_obj(sample, sample_conf)
-                assert valid, msg
+            if batch_size is None:
+                ds = get_test_subset(ds, test_cnt)
+                for sample in ds:
+                    valid, msg = validate_nested_obj(sample, sample_conf)
+                    assert valid, msg
+            else:
+                dl = DataLoader(ds, batch_size)
+                batch_conf = reshape4batch(sample_conf, batch_size)
+                for batch in tqdm(dl, desc=f"{root} | {split}"):
+                    valid, msg = validate_nested_obj(batch, batch_conf)
+                    assert valid, msg
 
     for ds_name, conf in conf.items():
         ds_count = (
