@@ -143,6 +143,7 @@ if __name__ == "__main__":
                     test_cnt=args.dataset_test_cnt,
                     batch_size=args.batch_size,
                     num_workers=args.data_worker_cnt,
+                    log_dir=args.log_dir,
                 )
                 logger.info()
             if conf_name == "models":
