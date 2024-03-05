@@ -65,6 +65,12 @@ def parse_args():
         help="Batch size for the full dataset testing. If not specified, dataset-test-cnt number of samples will be randomly picked",
     )
     parser.add_argument(
+        "--data-worker-cnt",
+        type=int,
+        default=1,
+        help="Number of workers in the dataloader if --batch-size is defined",
+    )
+    parser.add_argument(
         "--dataset-test-cnt",
         type=int,
         default=6,
@@ -136,6 +142,7 @@ if __name__ == "__main__":
                     conf=conf,
                     test_cnt=args.dataset_test_cnt,
                     batch_size=args.batch_size,
+                    num_workers=args.data_worker_cnt,
                 )
                 logger.info()
             if conf_name == "models":

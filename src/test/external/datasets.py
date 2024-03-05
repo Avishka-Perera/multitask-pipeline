@@ -30,7 +30,9 @@ def reshape4batch(conf, batch_size):
     return new_conf
 
 
-def test(logger: Logger, conf: OmegaConf, test_cnt: int, batch_size: int) -> None:
+def test(
+    logger: Logger, conf: OmegaConf, test_cnt: int, batch_size: int, num_workers: int
+) -> None:
     logger.info("Testing Datasets...")
 
     def validate_single(root, split, params, sample_conf):
@@ -43,11 +45,17 @@ def test(logger: Logger, conf: OmegaConf, test_cnt: int, batch_size: int) -> Non
                     valid, msg = validate_nested_obj(sample, sample_conf)
                     assert valid, msg
             else:
-                dl = DataLoader(ds, batch_size)
+                dl = DataLoader(ds, batch_size, num_workers=num_workers)
                 batch_conf = reshape4batch(sample_conf, batch_size)
-                for batch in tqdm(dl, desc=f"{root} | {split}"):
-                    valid, msg = validate_nested_obj(batch, batch_conf)
-                    assert valid, msg
+                dl_len = len(dl)
+                for i, batch in tqdm(
+                    enumerate(dl), desc=f"{root} | {split}", total=dl_len
+                ):
+                    if (
+                        i < dl_len - 1
+                    ):  # last batch might not contain the required batch size
+                        valid, msg = validate_nested_obj(batch, batch_conf)
+                        assert valid, msg
 
     for ds_name, conf in conf.items():
         ds_count = (
