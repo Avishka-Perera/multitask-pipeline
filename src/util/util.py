@@ -14,7 +14,6 @@ import omegaconf
 from omegaconf.listconfig import ListConfig
 from collections import OrderedDict
 import random
-import boto3
 import logging
 
 logger = logging.getLogger()
@@ -207,24 +206,24 @@ def download_with_pbar(s3, bucket_name, object_key, local_file_path):
             )
 
 
-def download_s3_directory(s3_uri, local_path, show_pbar=False):
-    s3 = boto3.client("s3")
-    paginator = s3.get_paginator("list_objects_v2")
-    bucket_name, prefix = split_s3_uri(s3_uri)
-    pages = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
+# def download_s3_directory(s3_uri, local_path, show_pbar=False):
+#     s3 = boto3.client("s3")
+#     paginator = s3.get_paginator("list_objects_v2")
+#     bucket_name, prefix = split_s3_uri(s3_uri)
+#     pages = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
 
-    for page in pages:
-        for content in page.get("Contents", []):
-            object_key = content["Key"]
-            local_file_path = os.path.join(
-                local_path, object_key.replace(prefix, "").strip("/")
-            )
-            os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
-            if show_pbar:
-                download_with_pbar(s3, bucket_name, object_key, local_file_path)
-            else:
-                s3.download_file(bucket_name, object_key, local_file_path)
-                logger.info(f"Downloaded: {object_key} to {local_file_path}")
+#     for page in pages:
+#         for content in page.get("Contents", []):
+#             object_key = content["Key"]
+#             local_file_path = os.path.join(
+#                 local_path, object_key.replace(prefix, "").strip("/")
+#             )
+#             os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+#             if show_pbar:
+#                 download_with_pbar(s3, bucket_name, object_key, local_file_path)
+#             else:
+#                 s3.download_file(bucket_name, object_key, local_file_path)
+#                 logger.info(f"Downloaded: {object_key} to {local_file_path}")
 
 
 def load_model_states(
