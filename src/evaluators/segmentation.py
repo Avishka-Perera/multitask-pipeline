@@ -32,8 +32,7 @@ class SegmentationEvaluator(BaseEvaluator):
         rgb_image = rgba_image[:, :, :3]
         return rgb_image
 
-    # def __visualize_segmentation(self, img, seg_lbl, seg_prd, seg_id):
-    #     seg_lbl = seg_lbl
+    # def __visualize_segmentation(self, img, seg_prd, seg_lbl, seg_id): #seg_lbl 128, 128   img 3, 128, 128
     #     gt_binary_mask = np.zeros_like(seg_lbl)
     #     gt_binary_mask[seg_lbl == seg_id] = 1
 
@@ -45,7 +44,7 @@ class SegmentationEvaluator(BaseEvaluator):
     #         img = self._gray2rgb(img.squeeze())
 
     #     # predicted regions
-    #     transparency = 0.3
+    #     transparency = 1
     #     for i in [1, 2]:
     #         img[i, :, :][pd_binary_mask == 1] = (
     #             img[i, :, :][pd_binary_mask > 0] * (1 - transparency)
@@ -70,7 +69,7 @@ class SegmentationEvaluator(BaseEvaluator):
         self, batch: Dict[str, torch.Tensor], info: Dict[str, torch.Tensor]
     ) -> None:
         logits = info["logits"].cpu().detach().numpy()
-        # logits = logits.argmax(axis=1)
+        logits = logits.argmax(axis=1)
         labels = batch["seg"].cpu().detach().numpy()
         images = batch[self.batch_img_key].cpu().detach().numpy()
         labels = labels.squeeze()
@@ -96,13 +95,19 @@ class SegmentationEvaluator(BaseEvaluator):
 
         return {"intersec": total_intersec, "union": total_union, "imgs": imgs}
     
-    def _visualize_segmentation(self, img, seg_lbl, segmentation_maps ,seg_id):
-        segmentation_maps = np.asarray(segmentation_maps)
-        colormap = np.random.rand(80, 3)
-        masked_clormap = np.ones((*segmentation_maps.shape, 3)) * colormap[:, None, None] * segmentation_maps[:,:,:,None]  #128,128,3 x 3 x 
-        img1 = masked_clormap.sum(axis=(0))
-        conc = np.concatenate([img.transpose(1, 2, 0), img1], 1)
-        return conc
+    def _visualize_segmentation(self, img,seg_lbl, segmentation_maps , seg_id):  #seg_lbl 128, 128   img 3, 128, 128
+        import matplotlib.pyplot as plt
+        
+        class_indices = np.unique(segmentation_maps)
+        cmap = plt.cm.get_cmap('tab20', len(class_indices))
+        color_map = cmap(np.arange(len(class_indices)))
+
+        rgb_image = np.zeros((*segmentation_maps.shape, 3))
+        for i, class_index in enumerate(class_indices):
+            if class_index != 0:
+                rgb_image[segmentation_maps == class_index] = color_map[i][:3] 
+        conc = np.concatenate((img.transpose(1,2,0), rgb_image), 1)
+        return conc 
 
     def _save_report(self, iou: float) -> str:
         report = f"IoU: {iou}"
