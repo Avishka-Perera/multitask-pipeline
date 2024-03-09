@@ -14,6 +14,7 @@ from mt_pipe.src.test.external.learners import test as test_learners
 from mt_pipe.src.test.external.losses import test as test_losses
 from mt_pipe.src.test.external.visualizers import test as test_visualizers
 from mt_pipe.src.test.external.evaluators import test as test_evaluators
+from mt_pipe.src.test.external.augmentors import test as test_augmentors
 from mt_pipe.src.util import Logger
 import yaml
 from omegaconf import OmegaConf
@@ -35,6 +36,7 @@ def parse_args():
             "losses",
             "evaluators",
             "visualizers",
+            "augmentors",
         ],
     )
     parser.add_argument(
@@ -126,6 +128,7 @@ if __name__ == "__main__":
         "losses",
         "visualizers",
         "evaluators",
+        "augmentors",
     ]
     assert all(
         [n in valid_conf_names for n in conf_names]
@@ -160,4 +163,7 @@ if __name__ == "__main__":
                 logger.info()
             if conf_name == "evaluators":
                 test_evaluators(logger=logger, conf=conf, log_dir=args.log_dir)
+                logger.info()
+            if conf_name == "augmentors":
+                test_augmentors(logger=logger, conf=conf)
                 logger.info()
