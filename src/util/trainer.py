@@ -2,7 +2,7 @@ import torch
 import os, shutil
 from omegaconf import OmegaConf
 from omegaconf.listconfig import ListConfig
-from typing import Sequence, Dict
+from typing import Sequence, Dict, Tuple, Any
 import yaml
 from torch.utils.data import Subset, DataLoader
 from torch import autocast
@@ -372,7 +372,8 @@ class Trainer:
 
         learner.set_devices(devices)
         if self.is_dist:
-            self.learner = DDP(learner, device_ids=devices)
+            torch.cuda.set_device(devices[0])
+            self.learner = DDP(learner)
         else:
             self.learner = learner
 
@@ -573,7 +574,7 @@ class Trainer:
         epoch: int,
         batch_id: int,
         batch_count: int,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, Any]]:
         if self.use_amp:
             with autocast(device_type="cuda", dtype=self.mp_dtype):
                 info = self.learner(batch)
@@ -596,7 +597,7 @@ class Trainer:
         epoch: int,
         batch_id: int,
         batch_count: int,
-    ) -> float:
+    ) -> Tuple[torch.Tensor, Dict[str, Any]]:
         self.optimizer.zero_grad()
 
         if self.use_amp:
@@ -623,7 +624,6 @@ class Trainer:
                 loss_pack, epoch * batch_count + batch_id, "train"
             )
 
-        tot_loss = tot_loss.detach().cpu().item()
         return tot_loss, info
 
     def _save_ckpt(self, epoch, output_path, status, history=None):
@@ -934,6 +934,7 @@ class Trainer:
                 train_loss, info = self.train_step(
                     batch, epoch, batch_id, train_batch_count
                 )
+                train_loss = train_loss.detach().cpu().item()
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
@@ -961,10 +962,10 @@ class Trainer:
                     self.logger.info("Validating")
 
                 def process_batch(batch, batch_id, val_loss):
-                    val_loss_pack, info = self.val_step(
+                    val_loss_step, info = self.val_step(
                         batch, epoch, batch_id, val_batch_count
                     )
-                    val_loss += val_loss_pack["tot"]
+                    val_loss += val_loss_step
                     cur_val_loss = val_loss / (batch_id + 1)
                     if self.do_out:
                         pbar.set_postfix(loss=cur_val_loss.detach().cpu().item())
@@ -985,11 +986,9 @@ class Trainer:
                 val_loss /= val_batch_count
 
         if self.is_dist:
-            val_loss = val_loss.detach().cpu()
             dist.all_reduce(val_loss, dist.ReduceOp.SUM)
-            val_loss = val_loss.item() / self.world_size
-        else:
-            val_loss = val_loss.detach().cpu().item()
+            val_loss = val_loss / self.world_size
+        val_loss = val_loss.detach().cpu().item()
 
         return val_loss
 
@@ -1018,7 +1017,7 @@ class Trainer:
                     if batch_id == len(test_dl) - 1:
                         self._visualize(info, batch, epoch, "test")
 
-                # # gather all results at rank 0 replica
+                # gather all results at rank 0 replica
                 if self.is_dist:
                     all_results = [None for _ in range(self.world_size)]
 

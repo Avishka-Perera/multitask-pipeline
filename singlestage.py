@@ -158,19 +158,20 @@ def parse_args():
 
 def main(args, dist_pack):
     is_dist = dist_pack != False
-    rank, local_rank, world_size = dist_pack
 
     if is_dist:
         setup()
+        rank, local_rank, world_size = dist_pack
         logger = Logger(args.verbose, rank)
+
+        # setup devices for the process
+        devices = [
+            args.devices[i + local_rank * args.replica_size]
+            for i in range(args.replica_size)
+        ]
     else:
         logger = Logger(args.verbose)
-
-    # setup devices for the process
-    devices = [
-        args.devices[i + local_rank * args.replica_size]
-        for i in range(args.replica_size)
-    ]
+        devices = args.devices
 
     trainer = Trainer(
         conf=args.config,
@@ -204,16 +205,22 @@ if __name__ == "__main__":
     if args.seed is not None:
         set_all_seeds(args.seed)
 
-    replica_size = args.replica_size
-    if replica_size is None:
-        # load the replica size from the learner
-        conf = load_config(args.config)
-        learner_cls = load_class(conf.learner.target)
-        replica_size = learner_cls.device_count
-        args.replica_size = replica_size
-
     is_dist = get_is_dist()
     if is_dist:
+        replica_size = args.replica_size
+        if replica_size is None:
+            # load the replica size from the learner
+            conf = load_config(args.config)
+            learner_cls = load_class(conf.learner.target)
+            replica_size = learner_cls.device_count
+            args.replica_size = replica_size
+        assert replica_size != 0, "Replica size cannot be 0"
+        if replica_size != 1:
+            # TODO: implement DDP with RPC, or huggingface accelerate
+            raise NotImplementedError(
+                "Distributed training is currently not implemented for 'replica_size != 1'"
+            )
+
         rank, local_rank, world_size = is_dist
         n_gpus = len(args.devices)
         assert (
