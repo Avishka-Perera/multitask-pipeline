@@ -226,5 +226,9 @@ if __name__ == "__main__":
         assert (
             n_gpus >= world_size * replica_size
         ), f"Instantiated number of processes ({world_size}) are too much for the provided GPU devices ({n_gpus}) with the current replica_size ({replica_size})"
+    else:
+        assert (
+            args.replica_size is None
+        ), "Replica size must only be defined when invoking distributed training. Distributed training is always invoked by torchrun"
 
     main(args, is_dist)
