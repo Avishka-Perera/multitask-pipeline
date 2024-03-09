@@ -36,6 +36,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 import gc
 from functools import partial, reduce
+from torch.utils.data._utils.collate import default_collate
 
 
 def validate_conf(
@@ -78,7 +79,12 @@ def validate_conf(
     # start validate the data configurations
     def validate_single_datapath(data_conf, nm):
         data_required_keys = ["target", "params"]
-        data_possible_keys = data_required_keys
+        data_possible_keys = [
+            *data_required_keys,
+            "train_params",
+            "val_params",
+            "test_params",
+        ]
         validate_keys(data_conf.keys(), data_required_keys, data_possible_keys, nm)
         data_param_required_keys = ["root"]
         validate_keys(
@@ -210,7 +216,7 @@ def validate_conf(
     # start validate the train configurations
     if do_train:
         train_required_keys = ["loader_params", "epochs"]
-        train_possible_keys = train_required_keys + ["tollerance"]
+        train_possible_keys = train_required_keys + ["tollerance", "augmentor"]
         validate_keys(
             conf.train.keys(),
             train_required_keys,
@@ -222,6 +228,16 @@ def validate_conf(
             assert are_lists_equal(
                 list(conf.data.keys()), list(conf.train.loader_params.keys())
             ), "Keys in conf.train.loader_params must be the same as the keys in conf.data"
+        # validate augmentor config
+        if "augmentor" in conf.train.keys():
+            aug_required_keys = ["target"]
+            aug_possible_keys = [*aug_required_keys, "params"]
+            validate_keys(
+                conf.train.augmentor.keys(),
+                aug_required_keys,
+                aug_possible_keys,
+                "conf.train.augmentor",
+            )
     # end validate the train configurations
 
     # start validate the val configurations
@@ -269,13 +285,24 @@ def load_datasets(
             for i, v in enumerate(params["root"]):
                 params["root"][i] = os.path.join(data_dir, v)
 
-        train_ds = dataset_class(**params, split=splits[0])
+        train_params = {**params}
+        if "train_params" in conf:
+            train_params = {**params, **conf.train_params}
+        train_ds = dataset_class(**train_params, split=splits[0])
+
         if do_val:
-            val_ds = dataset_class(**params, split=splits[1])
+            val_params = {**params}
+            if "val_params" in conf:
+                val_params = {**params, **conf.val_params}
+            val_ds = dataset_class(**val_params, split=splits[1])
         else:
             val_ds = None
+
         if do_test:
-            test_ds = dataset_class(**params, split=splits[2])
+            test_params = {**params}
+            if "test_params" in conf:
+                test_params = {**params, **conf.test_params}
+            test_ds = dataset_class(**test_params, split=splits[2])
         else:
             test_ds = None
 
@@ -832,22 +859,22 @@ class Trainer:
     def _get_dataloaders(self, train_ds, val_ds, test_ds):
         def process_loader_params(loader_params: OmegaConf, ds) -> Dict:
             new_loader_params = OmegaConf.to_container(loader_params)
-            if "collate_fn" in loader_params:
-                collate_fn_conf = loader_params.pop("collate_fn")
-                func = load_class(collate_fn_conf.target)
-                if "params" in collate_fn_conf:
-                    new_func_params = {}
-                    for k, v in collate_fn_conf.params.items():
-                        if hasattr(v, "__iter__") and "target" in v:
-                            # i.e., its a class object
-                            cls = load_class(v.target)
-                            params = dict(v.params) if "params" in v else {}
-                            new_func_params[k] = cls(**params)
-                        else:
-                            new_func_params[k] = v
-                    new_loader_params["collate_fn"] = partial(func, **new_func_params)
-                else:
-                    new_loader_params["collate_fn"] = func
+
+            # add the augmentor
+            if self.do_train and "augmentor" in self.conf.train:
+                augmentor = make_obj_from_conf(self.conf.train.augmentor)
+
+                def new_collate_fn(batch):
+                    if hasattr(augmentor, "pre_collate_routine"):
+                        batch = [
+                            augmentor.pre_collate_routine(sample) for sample in batch
+                        ]
+                    batch = default_collate(batch)
+                    if hasattr(augmentor, "post_collate_routine"):
+                        batch = augmentor.post_collate_routine(batch)
+                    return batch
+
+                new_loader_params["collate_fn"] = new_collate_fn
 
             if self.is_dist:
                 if "sampler" in loader_params:
