@@ -1,9 +1,17 @@
 from torch.utils.data import ConcatDataset, Dataset
-from typing import Sequence
-from ..util import load_class
+import importlib
 from typing import Dict
 from omegaconf import OmegaConf
 from omegaconf.listconfig import ListConfig
+
+
+def load_class(target):
+    """loads a class using a target"""
+    *module_name, class_name = target.split(".")
+    module_name = ".".join(module_name)
+    module = importlib.import_module(module_name)
+    cls = getattr(module, class_name)
+    return cls
 
 
 class ConcatSet(Dataset):
@@ -28,14 +36,11 @@ class ConcatSet(Dataset):
         return comp_conf
 
     def __init__(
-        self, root: Sequence[str], split: str = "train", conf: Dict | ListConfig = []
+        self, data_root: str, split: str = "train", conf: Dict | ListConfig = []
     ) -> None:
         assert conf != []
         assert all(["target" in comp_conf for comp_conf in conf])
-        assert isinstance(root, Sequence)
-        assert type(root[0]) == str
         assert split in self.valid_splits
-        assert len(conf) == len(root)
 
         conf = OmegaConf.create(
             [self._process_comp_conf(comp_conf) for comp_conf in conf]
@@ -49,7 +54,9 @@ class ConcatSet(Dataset):
             for foreign_split in ds_conf.split_mix[split]:
                 class_splits.append(
                     ds_class(
-                        root=root[i], split=foreign_split, **dict(ds_conf.params[split])
+                        data_root=data_root,
+                        split=foreign_split,
+                        **dict(ds_conf.params[split])
                     )
                 )
             if len(class_splits) == 1:

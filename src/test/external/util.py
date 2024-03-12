@@ -128,7 +128,7 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
                     else:
                         return (
                             False,
-                            f"Unexpected object. Key: {key_lead}.",
+                            f"1 Unexpected object. Key: {key_lead}.",
                         )  # If the shape is not there, that means this is an unexpected obj
 
                 elif type(obj) in [int, float]:
@@ -158,14 +158,20 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
                                 f"Invalid maximum. Key: {key_lead}. Expected: {conf['max']}, Found: {obj if type(obj) in [float, int] else obj.max()}",
                             )
                         return True, "Valid"
-                    else:
+                    elif conf != type(obj).__name__:
                         return (
                             False,
-                            f"Unexpected object. Key: {key_lead}.",
-                        )  # If the dtype is not there, that means this is an unexpected obj
+                            f"Found {type(obj).__name__} object. Expected conf: {conf}. Key: {key_lead}.",
+                        )
+                elif type(obj) == str:
+                    if conf != "str":
+                        return (
+                            False,
+                            f"Found 'str' object. Expected conf: {conf}. Key: {key_lead}",
+                        )
                 else:
                     raise NotImplementedError(
-                        "Not implemented for other objects yet. Please open an issue with your use case"
+                        f"Not implemented for ({type(obj)}) objects yet. Key: {key_lead}. Please open an issue with your use case"
                     )
 
         elif type(obj) in [tuple, list]:
@@ -185,7 +191,7 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
                     if not valid:
                         return False, msg
                 else:
-                    return False, f"Unexpected object. Key: {key_lead}[{k}]"
+                    return False, f"3 Unexpected object. Key: {key_lead}[{k}]"
 
         else:  # type(obj) = dict
             if type(conf) not in [dict, DictConfig]:
@@ -208,7 +214,7 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
                     if not valid:
                         return False, msg
                 else:
-                    return False, f"Unexpected object. Key: {lead}"
+                    return False, f"4 Unexpected object. Key: {lead}"
 
         return True, "Valid"
 
@@ -249,6 +255,25 @@ def validate_nested_obj(obj, conf, tentative_none_mask=None) -> Tuple[bool, str]
     valid, msg = validate_nested_conf_keys(obj, conf)
 
     return valid, msg
+
+
+def get_nested_obj_conf(obj):
+    if type(obj) == dict:
+        conf = dict()
+        for k, v in obj.items():
+            conf[k] = get_nested_obj_conf(v)
+    elif type(obj) in [tuple, list]:
+        conf = []
+        for sub_obj in obj:
+            conf.append(get_nested_obj_conf(sub_obj))
+    elif type(obj) in [str, float, int]:
+        return str(type(obj).__name__)
+    elif type(obj) == torch.Tensor:
+        return {"shape": list(obj.shape), "dtype": obj.dtype}
+    else:
+        raise TypeError(f"Unexpected object type ({type(obj)})")
+
+    return conf
 
 
 def are_shapes_equal(pack_1, pack_2):

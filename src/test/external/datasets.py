@@ -46,8 +46,8 @@ def test(
 
     logger.info("Testing Datasets...")
 
-    def validate_single(root, split, params, sample_conf):
-        params = {"root": root, "split": split, **params}
+    def validate_single(data_root, split, params, sample_conf):
+        params = {"data_root": data_root, "split": split, **params}
         try:
             ds = cls(**params)
             assert len(ds) > 0, "Dataset length cannot be 0"
@@ -64,7 +64,7 @@ def test(
                     batch_conf = reshape4batch(sample_conf, batch_size)
                     dl_len = len(dl)
                     for idx, batch in tqdm(
-                        enumerate(dl), desc=f"{root} | {split}", total=dl_len
+                        enumerate(dl), desc=f"{data_root} | {split}", total=dl_len
                     ):
                         if idx == dl_len - 1:
                             batch_conf = reshape4batch(
@@ -93,19 +93,17 @@ def test(
 
                 with open(log_path, "a") as handler:
                     handler.write(log)
+            else:
+                raise e
 
     for ds_name, conf in conf.items():
         ds_count = (
-            len(conf.splits) * len(conf.root)
-            if type(conf.root) == ListConfig
+            len(conf.splits) * len(conf.data_root)
+            if type(conf.data_root) == ListConfig
             else len(conf.splits)
         )
         logger.info(f"Testing {ds_name}({ds_count})...")
         cls = load_class(conf.target)
         params = conf.params if "params" in conf else {}
         for split in conf.splits:
-            if type(conf.root) == ListConfig:
-                for root in conf.root:
-                    validate_single(root, split, params, conf.sample_conf)
-            else:
-                validate_single(conf.root, split, params, conf.sample_conf)
+            validate_single(conf.data_root, split, params, conf.sample_conf)
