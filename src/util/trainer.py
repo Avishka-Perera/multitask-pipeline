@@ -86,14 +86,14 @@ def validate_conf(
             "test_params",
         ]
         validate_keys(data_conf.keys(), data_required_keys, data_possible_keys, nm)
-        data_param_required_keys = ["root"]
+        data_param_required_keys = []
         validate_keys(
             data_conf.params.keys(),
             data_param_required_keys,
             name=f"{nm}.params",
         )
         if load_class(data_conf.target) == ConcatSet:
-            data_param_required_keys = ["root"]
+            data_param_required_keys = []
             data_param_possible_keys = data_param_required_keys + [
                 "conf",
             ]
@@ -278,12 +278,6 @@ def load_datasets(
     def load_single_dataset(conf):
         dataset_class = load_class(conf.target)
         params = OmegaConf.to_container(conf.params)
-        if type(params["root"]) == str:
-            params["root"] = os.path.join(data_dir, params["root"])
-        else:
-            assert type(params["root"]) in [list, tuple]
-            for i, v in enumerate(params["root"]):
-                params["root"][i] = os.path.join(data_dir, v)
 
         train_params = {**params}
         if "train_params" in conf:
@@ -602,6 +596,7 @@ class Trainer:
         batch_id: int,
         batch_count: int,
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
+        batch["curr_epoch"] = epoch
         if self.use_amp:
             with autocast(device_type="cuda", dtype=self.mp_dtype):
                 info = self.learner(batch)
@@ -626,6 +621,7 @@ class Trainer:
         batch_count: int,
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
         self.optimizer.zero_grad()
+        batch["curr_epoch"] = epoch
 
         if self.use_amp:
             with autocast(device_type="cuda", dtype=self.mp_dtype):
@@ -1032,6 +1028,7 @@ class Trainer:
 
                 results = {nm: [] for nm in self.evaluators.keys()}
                 for batch_id, batch in enumerate(test_dl):
+                    batch["curr_epoch"] = epoch
                     if self.use_amp:
                         with autocast(device_type="cuda", dtype=self.mp_dtype):
                             info = self.learner(batch)
