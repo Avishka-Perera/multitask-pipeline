@@ -408,7 +408,13 @@ class Trainer:
 
         # load learner
         learner = self.learner.module if self.is_dist else self.learner
-        sd = ckpt["learner"]
+        if "learner" in ckpt:
+            sd = ckpt["learner"]
+        else:
+            self.logger.warn(
+                "'learner' key not found in the provided checkpoint. Assuming checkpoint is a state dict"
+            )
+            sd = ckpt
         if ckpt_map_conf_path is None or "learner" not in ckpt_map_info:
             if hasattr(learner, "load_ckeckpoint"):
                 learner.load_ckeckpoint(ckpt_path)
@@ -537,6 +543,7 @@ class Trainer:
         use_amp: bool,
         logger: Logger,
         analysis_level: int,
+        visualize_every: int,
     ) -> None:
         if type(conf) == str:
             with open(conf) as handler:
@@ -588,6 +595,7 @@ class Trainer:
             else {}
         )
         self.analysis_level = analysis_level
+        self.visualize_every = visualize_every
 
     def val_step(
         self,
@@ -961,7 +969,9 @@ class Trainer:
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
-                    if batch_id == train_batch_count - 1:
+                    if (batch_id % self.visualize_every == 0) or (
+                        batch_id == train_batch_count - 1
+                    ):
                         self._visualize(info, batch, epoch, "train")
                 train_losses.append(train_loss)
 
@@ -993,7 +1003,9 @@ class Trainer:
                     if self.do_out:
                         pbar.set_postfix(loss=cur_val_loss.detach().cpu().item())
                         pbar.update(1)
-                        if batch_id == val_batch_count - 1:
+                        if (batch_id % self.visualize_every == 0) or (
+                            batch_id == val_batch_count - 1
+                        ):
                             self._visualize(info, batch, epoch, "val")
 
                         self.logger.plot(
@@ -1038,7 +1050,9 @@ class Trainer:
                     for nm, eval in self.evaluators.items():
                         results[nm].append(eval.process_batch(batch=batch, info=info))
                     pbar.update()
-                    if batch_id == len(test_dl) - 1:
+                    if (batch_id % self.visualize_every == 0) or (
+                        batch_id == len(test_dl) - 1
+                    ):
                         self._visualize(info, batch, epoch, "test")
 
                 # gather all results at rank 0 replica

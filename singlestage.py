@@ -108,6 +108,12 @@ def parse_args():
         choices=analysis_levels,
     )
     parser.add_argument(
+        "--visualize-every",
+        type=int,
+        default=float("inf"),
+        help="The required frequency of visualizations during an epoch. Default if 'inf', i.e., visualizes only at the end of the epoch",
+    )
+    parser.add_argument(
         "--ckpt-path",
         type=str,
         help="Checkpoints file to load states from",
@@ -184,6 +190,7 @@ def main(args, dist_pack):
         use_amp=args.use_amp,
         logger=logger,
         analysis_level=args.analysis_level,
+        visualize_every=args.visualize_every,
     )
 
     trainer.fit(
