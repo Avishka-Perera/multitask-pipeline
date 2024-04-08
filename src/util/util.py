@@ -161,7 +161,7 @@ def validate_keys(target, required_vals, possible_vals=None, name=None) -> None:
     if possible_vals is not None:
         if has_excess_vals(target, possible_vals):
             raise AttributeError(
-                f"Unexpected key found for '{name}'. Possible keys are {possible_vals}"
+                f"Unexpected keys ({list(set(target)-set(possible_vals))}) found for '{name}'. Possible keys are {possible_vals}"
             )
 
 

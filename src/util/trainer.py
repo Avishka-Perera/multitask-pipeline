@@ -53,8 +53,9 @@ def validate_conf(
     # validate root configuration
     root_required_keys = [
         "name",
-        "data",
+        "datasets",
         "learner",
+        "epochs",
     ]
     root_possible_keys = root_required_keys + [
         "loss",
@@ -77,62 +78,11 @@ def validate_conf(
             "'loss' and 'optimizer' must be defined if 'train' is defined"
         )
 
-    # start validate the data configurations
-    def validate_single_datapath(data_conf, nm):
-        data_required_keys = ["target", "params"]
-        data_possible_keys = [
-            *data_required_keys,
-            "train_params",
-            "val_params",
-            "test_params",
-        ]
-        validate_keys(data_conf.keys(), data_required_keys, data_possible_keys, nm)
-        data_param_required_keys = []
-        validate_keys(
-            data_conf.params.keys(),
-            data_param_required_keys,
-            name=f"{nm}.params",
-        )
-        if load_class(data_conf.target) == ConcatSet:
-            data_param_required_keys = []
-            data_param_possible_keys = data_param_required_keys + [
-                "conf",
-            ]
-            validate_keys(
-                data_conf.params.keys(),
-                data_param_required_keys,
-                data_param_possible_keys,
-                f"{nm}.params",
-            )
-            ds_conf_required_keys = ["target"]
-            ds_conf_possible_keys = ds_conf_required_keys + [
-                "split_mix",
-                "params",
-                "reps",
-            ]
-            for i, ds_conf in enumerate(data_conf.params.conf):
-                validate_keys(
-                    ds_conf.keys(),
-                    ds_conf_required_keys,
-                    ds_conf_possible_keys,
-                    f"{nm}.params.conf[{i}]",
-                )
-
-    if "target" in conf.data:
-        validate_single_datapath(conf.data, "conf.data")
-    else:
-        # i.e., multi datapaths
-        for nm, sub_conf in conf.data.items():
-            validate_single_datapath(sub_conf, f"conf.data.{nm}")
-
     # validate datasets
     if validate_datasets:
-        train_ds, val_ds, test_ds = load_datasets(conf, data_dir, do_val, do_test)
-        assert len(train_ds) > 0, "The train_ds has length 0"
-        assert not do_val or len(val_ds) > 0, "The val_ds has length 0"
-        assert not do_test or len(test_ds) > 0, "The test_ds has length 0"
-
-    # end validate the data configurations
+        datasets = load_datasets(conf)
+        for k, ds in datasets.items():
+            assert len(ds) > 0, f"Dataset '{k}' has length 0."
 
     # validate the learner configuration
     learner_required_keys = ["target"]
@@ -228,7 +178,7 @@ def validate_conf(
 
     # start validate the train configurations
     if do_train:
-        train_required_keys = ["loader_params", "epochs"]
+        train_required_keys = ["dataset", "loader_params"]
         train_possible_keys = train_required_keys + [
             "tollerance",
             "augmentor",
@@ -240,11 +190,16 @@ def validate_conf(
             train_possible_keys,
             "conf.train",
         )
-        # validate that the datapaths are the same as defined in the data definition
-        if "target" not in conf.data:
-            assert are_lists_equal(
-                list(conf.data.keys()), list(conf.train.loader_params.keys())
-            ), "Keys in conf.train.loader_params must be the same as the keys in conf.data"
+        # validate that the datasets are defined under conf.datasets
+        if type(conf.train.dataset) == str:
+            assert (
+                conf.train.dataset in conf.datasets
+            ), "Only datasets defined under conf.datasets are possible under `conf.train.dataset`"
+        else:
+            for ds_nm in conf.train.dataset:
+                assert (
+                    ds_nm in conf.datasets
+                ), "Only datasets defined under conf.datasets are possible under `conf.train.dataset`"
         # validate augmentor config
         if "augmentor" in conf.train.keys():
             assert (type(conf.train.augmentor) == str) and (
@@ -254,19 +209,24 @@ def validate_conf(
 
     # start validate the val configurations
     if do_val:
-        val_required_keys = ["loader_params"]
-        val_possible_keys = val_required_keys + ["loss"]
+        val_required_keys = ["loader_params", "dataset"]
+        val_possible_keys = val_required_keys + ["loss", "visualizer", "augmentor"]
         validate_keys(
             conf.val.keys(),
             val_required_keys,
             val_possible_keys,
             "conf.val",
         )
-        # validate that the datapaths are the same as defined in the data definition
-        if "target" not in conf.data:
-            assert are_lists_equal(
-                list(conf.data.keys()), list(conf.val.loader_params.keys())
-            ), "Keys in conf.val.loader_params must be the same as the keys in conf.data"
+        # validate that the datasets are defined under conf.datasets
+        if type(conf.val.dataset) == str:
+            assert (
+                conf.val.dataset in conf.datasets
+            ), "Only datasets defined under conf.datasets are possible under `conf.val.dataset`"
+        else:
+            for ds_nm in conf.val.dataset:
+                assert (
+                    ds_nm in conf.datasets
+                ), "Only datasets defined under conf.datasets are possible under `conf.val.dataset`"
     # end validate the val configurations
 
     # TODO: validate the test configuration
@@ -275,56 +235,11 @@ def validate_conf(
         logger.info(f"Single task configuration for '{conf.name}' valid")
 
 
-def load_datasets(
-    conf: omegaconf.OmegaConf, data_dir: str, do_val: bool, do_test: bool
-) -> Sequence[Dict[str, Dataset]] | Sequence[Dataset]:
-    data_conf = conf.data
-
-    splits = []
-    for loop in ["train", "val", "test"]:
-        if loop in conf and "split" in conf[loop]:
-            splits.append(conf[loop].split)
-        else:
-            splits.append(loop)
-
-    def load_single_dataset(conf):
-        dataset_class = load_class(conf.target)
-        params = OmegaConf.to_container(conf.params)
-
-        train_params = {**params}
-        if "train_params" in conf:
-            train_params = {**params, **conf.train_params}
-        train_ds = dataset_class(**train_params, split=splits[0])
-
-        if do_val:
-            val_params = {**params}
-            if "val_params" in conf:
-                val_params = {**params, **conf.val_params}
-            val_ds = dataset_class(**val_params, split=splits[1])
-        else:
-            val_ds = None
-
-        if do_test:
-            test_params = {**params}
-            if "test_params" in conf:
-                test_params = {**params, **conf.test_params}
-            test_ds = dataset_class(**test_params, split=splits[2])
-        else:
-            test_ds = None
-
-        return train_ds, val_ds, test_ds
-
-    if "target" in data_conf:
-        return load_single_dataset(data_conf)
-    else:
-        train_dss, val_dss, test_dss = {}, {}, {}
-        for nm, sub_conf in data_conf.items():
-            train_ds, val_ds, test_ds = load_single_dataset(sub_conf)
-            train_dss[nm] = train_ds
-            val_dss[nm] = val_ds
-            test_dss[nm] = test_ds
-
-        return train_dss, val_dss, test_dss
+def load_datasets(conf) -> Sequence[BaseDataset] | BaseDataset:
+    datasets = {}
+    for ds_nm, ds_conf in conf.datasets.items():
+        datasets[ds_nm] = make_obj_from_conf(ds_conf)
+    return datasets
 
 
 class Trainer:
@@ -333,11 +248,10 @@ class Trainer:
     def _load_datasets(
         self,
     ) -> Sequence[BaseDataset] | BaseDataset:
-        train_ds, val_ds, test_ds = load_datasets(
-            self.conf, self.data_dir, self.do_val, self.do_test
-        )
-
-        return train_ds, val_ds, test_ds
+        datasets = {}
+        for ds_nm, ds_conf in self.conf.datasets.items():
+            datasets[ds_nm] = make_obj_from_conf(ds_conf)
+        self.datasets = datasets
 
     def _load_learner(self):
         learner_class = load_class(self.conf.learner.target)
@@ -588,7 +502,7 @@ class Trainer:
             self.logger.warn(
                 "No validation configuration detected. Validation loops will be skipped"
             )
-        self.train_ds, self.val_ds, self.test_ds = self._load_datasets()
+        self._load_datasets()
         self._load_learner()
         if weights_conf["ckpt_path"] is not None:
             self._load_states(
@@ -819,7 +733,22 @@ class Trainer:
 
         return output_path, min_loss, start_epoch, best_epoch, history
 
-    def _get_adjusted_datasets(self, mock_batch_count: Sequence[int]):
+    def _get_datasets(
+        self, mock_batch_count: Sequence[int]
+    ) -> Sequence[Dataset] | Sequence[Dict[str, Dataset]]:
+        """
+        Collects the loaded datasets according to the requests in the loop definitions.
+            If a loop definition requests a single dataset (e.g.: `conf.train.dataset: ds-1`), then a usual dataset object is returned
+            If a loop definition requests multiple datasets (e.g.: `conf.train.dataset: {task1: ds-1, task2: ds-2}`), then a distionary containing the requested datasets is returned
+                This is used in the case of multi-task training with parallel dataloaders
+
+        Furthermore, the length of the datasets are adjusted according to the specified mock_bacth_count
+            default is -1. i.e., dataset is collected as it is
+            If mock_batch_count is specified, the dataset is wrapped in a Subset object to provide the requested mock_batch_count
+            mock_batch_count is a list with either one integer or three integers
+                in the case of one integer, all the loops will iterate over a same number of batches
+                in the case of multiple integers, three loops will iterate over different number of batches as defined
+        """
         assert len(mock_batch_count) in [1, 3]
         train_mock_batch_count = mock_batch_count[0]
         if len(mock_batch_count) == 3:
@@ -829,55 +758,85 @@ class Trainer:
             val_mock_batch_count = train_mock_batch_count
             test_mock_batch_count = train_mock_batch_count
 
-        def get_mock_ds(split_conf, self_ds, mock_batch_count):
-            def get(ds, batch_size):
+        def wrap_dataset(dataset, mock_batch_count, batch_size):
+            if mock_batch_count == -1:
+                return dataset
+            else:
                 return Subset(
-                    ds,
+                    dataset,
                     range(
                         min(
                             batch_size * mock_batch_count * self.world_size,
-                            len(ds),
+                            len(dataset),
                         )
                     ),
                 )
 
-            if type(self_ds) == dict:
-                return {
-                    nm: get(ds, split_conf.loader_params[nm].batch_size)
-                    for nm, ds in self_ds.items()
+        train_ds, val_ds, test_ds = [None] * 3
+        if self.do_train:
+            if type(self.conf.train.dataset) == str:
+                train_ds = wrap_dataset(
+                    self.datasets[self.conf.train.dataset],
+                    train_mock_batch_count,
+                    self.conf.train.loader_params.batch_size,
+                )
+            else:
+                train_ds = {
+                    k: wrap_dataset(
+                        self.datasets[v],
+                        train_mock_batch_count,
+                        self.conf.train.loader_params.batch_size,
+                    )
+                    for k, v in self.conf.train.dataset.items()
                 }
-            else:
-                return get(self_ds, split_conf.loader_params.batch_size)
-
-        if train_mock_batch_count == -1:
-            train_ds = self.train_ds
-        else:
-            if self.do_train:
-                train_ds = get_mock_ds(
-                    self.conf.train, self.train_ds, train_mock_batch_count
-                )
-            else:
-                train_ds = self.train_ds
-        val_ds = self.val_ds
         if self.do_val:
-            if val_mock_batch_count != -1:
-                val_ds = get_mock_ds(self.conf.val, self.val_ds, val_mock_batch_count)
-        test_ds = self.test_ds
-        if self.do_test:
-            if test_mock_batch_count != -1:
-                test_ds = get_mock_ds(
-                    self.conf.test, self.test_ds, test_mock_batch_count
+            if type(self.conf.val.dataset) == str:
+                val_ds = wrap_dataset(
+                    self.datasets[self.conf.val.dataset],
+                    val_mock_batch_count,
+                    self.conf.val.loader_params.batch_size,
                 )
+            else:
+                val_ds = {
+                    k: wrap_dataset(
+                        self.datasets[v],
+                        val_mock_batch_count,
+                        self.conf.val.loader_params.batch_size,
+                    )
+                    for k, v in self.conf.val.dataset.items()
+                }
+        if self.do_test:
+            if type(self.conf.test.dataset) == str:
+                test_ds = wrap_dataset(
+                    self.datasets[self.conf.test.dataset],
+                    test_mock_batch_count,
+                    self.conf.test.loader_params.batch_size,
+                )
+            else:
+                test_ds = {
+                    k: wrap_dataset(
+                        self.datasets[v],
+                        test_mock_batch_count,
+                        self.conf.test.loader_params.batch_size,
+                    )
+                    for k, v in self.conf.test.dataset.items()
+                }
 
         return train_ds, val_ds, test_ds
 
-    def _get_dataloaders(self, train_ds, val_ds, test_ds):
-        def process_loader_params(loader_params: OmegaConf, ds) -> Dict:
-            new_loader_params = OmegaConf.to_container(loader_params)
+    def _get_dataloaders(
+        self,
+        train_ds: Sequence[Dataset] | Sequence[Dict[str, Dataset]],
+        val_ds: Sequence[Dataset] | Sequence[Dict[str, Dataset]],
+        test_ds: Sequence[Dataset] | Sequence[Dict[str, Dataset]],
+    ):
+
+        def process_loader_params(split_conf: OmegaConf, ds) -> Dict:
+            new_loader_params = OmegaConf.to_container(split_conf.loader_params)
 
             # add the augmentor
-            if self.do_train and "augmentor" in self.conf.train:
-                augmentor = self.augmentors[self.conf.train.augmentor]
+            if "augmentor" in split_conf:
+                augmentor = self.augmentors[split_conf.augmentor]
 
                 def new_collate_fn(batch):
                     if hasattr(augmentor, "pre_collate_routine"):
@@ -887,20 +846,25 @@ class Trainer:
                     batch = default_collate(batch)
                     if hasattr(augmentor, "post_collate_routine"):
                         batch = augmentor.post_collate_routine(batch)
+                    if not (
+                        hasattr(augmentor, "pre_collate_routine")
+                        or hasattr(augmentor, "post_collate_routine")
+                    ):
+                        batch = augmentor(batch)
                     return batch
 
                 new_loader_params["collate_fn"] = new_collate_fn
 
             if self.is_dist:
-                if "sampler" in loader_params:
-                    sampler_class = load_class(loader_params.sampler.target)
+                if "sampler" in split_conf.loader_params:
+                    sampler_class = load_class(split_conf.loader_params.sampler.target)
                 else:
                     sampler_class = DistributedSampler
                 new_loader_params["sampler"] = sampler_class(
                     ds, self.world_size, self.rank
                 )
             else:
-                if "sampler" in loader_params:
+                if "sampler" in split_conf.loader_params:
                     raise NotImplementedError(
                         "Custom sampler usage is not implemented for non-DDP setups"
                     )
@@ -908,8 +872,8 @@ class Trainer:
             return new_loader_params
 
         def get_loader(dss, split_conf):
-            def get_single_loader(ds, loader_params):
-                params = process_loader_params(loader_params, ds)
+            def get_single_loader(ds, split_conf):
+                params = process_loader_params(split_conf, ds)
                 sampler = params["sampler"] if "sampler" in params else None
                 loader = DataLoader(ds, **dict(params))
                 return loader, sampler
@@ -917,15 +881,13 @@ class Trainer:
             if type(dss) == dict:
                 samplers, dls = [], []
                 for nm, ds in dss.items():
-                    loader, sampler = get_single_loader(
-                        ds, split_conf.loader_params[nm]
-                    )
+                    loader, sampler = get_single_loader(ds, split_conf[nm])
                     dls.append(loader)
                     samplers.append(sampler)
                 loader = ParallelDataLoader(dls)
                 return loader, samplers
             else:
-                loader, sampler = get_single_loader(dss, split_conf.loader_params)
+                loader, sampler = get_single_loader(dss, split_conf)
                 return loader, [sampler]
 
         if self.do_train:
@@ -1108,9 +1070,7 @@ class Trainer:
             val_batch_count = None
 
         if self.do_train:
-            epochs = (
-                mock_epoch_count if mock_epoch_count > 0 else self.conf.train.epochs
-            )
+            epochs = mock_epoch_count if mock_epoch_count > 0 else self.conf.epochs
         else:
             epochs = 0
 
@@ -1138,7 +1098,7 @@ class Trainer:
             output_path, run_name, resume_dir, force_resume
         )
 
-        train_ds, val_ds, test_ds = self._get_adjusted_datasets(mock_batch_count)
+        train_ds, val_ds, test_ds = self._get_datasets(mock_batch_count)
         loaders, samplers = self._get_dataloaders(train_ds, val_ds, test_ds)
         train_dl, val_dl, test_dl = loaders
 
