@@ -65,6 +65,7 @@ def validate_conf(
         "test",
         "checkpoints",
         "visualizers",
+        "augmentors",
     ]
     validate_keys(conf.keys(), root_required_keys, root_possible_keys, "conf")
     if do_val and not do_train:
@@ -213,6 +214,18 @@ def validate_conf(
             "conf.lr_scheduler",
         )
 
+    # validate augmentors
+    if "augmentors" in conf.keys():
+        for aug_nm, aug_conf in conf.augmentors.items():
+            aug_required_keys = ["target"]
+            aug_possible_keys = aug_required_keys+["params"]
+            validate_keys(
+                aug_conf.keys(),
+                aug_required_keys,
+                aug_possible_keys,
+                f"conf.augmentors['{aug_nm}']",
+            )
+
     # start validate the train configurations
     if do_train:
         train_required_keys = ["loader_params", "epochs"]
@@ -230,14 +243,9 @@ def validate_conf(
             ), "Keys in conf.train.loader_params must be the same as the keys in conf.data"
         # validate augmentor config
         if "augmentor" in conf.train.keys():
-            aug_required_keys = ["target"]
-            aug_possible_keys = [*aug_required_keys, "params"]
-            validate_keys(
-                conf.train.augmentor.keys(),
-                aug_required_keys,
-                aug_possible_keys,
-                "conf.train.augmentor",
-            )
+            assert (type(conf.train.augmentor) == str) and (
+                conf.train.augmentor in conf.augmentors
+            ), "`conf.train.augmentor` must be a name of an augmentor defined at `conf.augmentors`"
     # end validate the train configurations
 
     # start validate the val configurations
@@ -534,6 +542,12 @@ class Trainer:
                     "loops": loops,
                 }
 
+    def _load_augmentors(self)->None:
+        self.augmentors = {}
+        if "augmentors" in self.conf:
+            for aug_nm, aug_conf in self.conf.augmentors.items():
+                self.augmentors[aug_nm] = make_obj_from_conf(aug_conf)
+
     def __init__(
         self,
         conf: str | Dict | omegaconf.dictconfig.DictConfig,
@@ -587,6 +601,7 @@ class Trainer:
         self._load_loss()
         self._load_evaluator()
         self._load_visualizer()
+        self._load_augmentors()
         self.use_amp = use_amp
         self._load_training_objects()
         self.ckpts = (
@@ -866,7 +881,7 @@ class Trainer:
 
             # add the augmentor
             if self.do_train and "augmentor" in self.conf.train:
-                augmentor = make_obj_from_conf(self.conf.train.augmentor)
+                augmentor = self.augmentors[self.conf.train.augmentor]
 
                 def new_collate_fn(batch):
                     if hasattr(augmentor, "pre_collate_routine"):
