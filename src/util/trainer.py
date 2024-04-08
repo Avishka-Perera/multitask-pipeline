@@ -218,7 +218,7 @@ def validate_conf(
     if "augmentors" in conf.keys():
         for aug_nm, aug_conf in conf.augmentors.items():
             aug_required_keys = ["target"]
-            aug_possible_keys = aug_required_keys+["params"]
+            aug_possible_keys = aug_required_keys + ["params"]
             validate_keys(
                 aug_conf.keys(),
                 aug_required_keys,
@@ -229,7 +229,11 @@ def validate_conf(
     # start validate the train configurations
     if do_train:
         train_required_keys = ["loader_params", "epochs"]
-        train_possible_keys = train_required_keys + ["tollerance", "augmentor"]
+        train_possible_keys = train_required_keys + [
+            "tollerance",
+            "augmentor",
+            "visualizer",
+        ]
         validate_keys(
             conf.train.keys(),
             train_required_keys,
@@ -532,17 +536,9 @@ class Trainer:
         self.visualizers: Dict[str, BaseVisualizer] = {}
         if "visualizers" in self.conf:
             for visu_nm, visu_conf in self.conf.visualizers.items():
-                loops = (
-                    visu_conf.loops
-                    if "loops" in visu_conf
-                    else ["train", "val", "test"]
-                )
-                self.visualizers[visu_nm] = {
-                    "obj": make_obj_from_conf(visu_conf, name=visu_nm),
-                    "loops": loops,
-                }
+                self.visualizers[visu_nm] = make_obj_from_conf(visu_conf, name=visu_nm)
 
-    def _load_augmentors(self)->None:
+    def _load_augmentors(self) -> None:
         self.augmentors = {}
         if "augmentors" in self.conf:
             for aug_nm, aug_conf in self.conf.augmentors.items():
@@ -816,7 +812,7 @@ class Trainer:
             model = self.learner.module if self.is_dist else self.learner
             self.logger.init_plotter(os.path.join(output_path, "logs"), model)
             for vis in self.visualizers.values():
-                vis["obj"].set_writer(self.logger.writer)
+                vis.set_writer(self.logger.writer)
             if self.do_test:
                 for nm, eval in self.evaluators.items():
                     eval.set_out_path(os.path.join(output_path, "evals", nm))
@@ -958,11 +954,6 @@ class Trainer:
             (*train_samplers, *val_samplers, *test_samplers),
         )
 
-    def _visualize(self, info: Dict, batch: Dict, epoch: int, loop: str):
-        for visu in self.visualizers.values():
-            if loop in visu["loops"]:
-                visu["obj"](info, batch, epoch, loop)
-
     def _train_loop(self, train_batch_count, show_pbar, epoch, train_dl):
         # train loop
         self.learner.train()
@@ -984,10 +975,13 @@ class Trainer:
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
-                    if (batch_id % self.visualize_every == 0) or (
-                        batch_id == train_batch_count - 1
-                    ):
-                        self._visualize(info, batch, epoch, "train")
+                    if (
+                        (batch_id % self.visualize_every == 0)
+                        or (batch_id == train_batch_count - 1)
+                    ) and "visualizer" in self.conf.train:
+                        self.visualizers[self.conf.train.visualizer](
+                            info, batch, epoch, "train"
+                        )
                 train_losses.append(train_loss)
 
             for batch_id, batch in enumerate(train_dl):
@@ -1018,10 +1012,13 @@ class Trainer:
                     if self.do_out:
                         pbar.set_postfix(loss=cur_val_loss.detach().cpu().item())
                         pbar.update(1)
-                        if (batch_id % self.visualize_every == 0) or (
-                            batch_id == val_batch_count - 1
-                        ):
-                            self._visualize(info, batch, epoch, "val")
+                        if (
+                            (batch_id % self.visualize_every == 0)
+                            or (batch_id == val_batch_count - 1)
+                        ) and "visualizer" in self.conf.val:
+                            self.visualizers[self.conf.val.visualizer](
+                                info, batch, epoch, "val"
+                            )
 
                         self.logger.plot(
                             "Loss (per epoch): Val",
@@ -1065,10 +1062,13 @@ class Trainer:
                     for nm, eval in self.evaluators.items():
                         results[nm].append(eval.process_batch(batch=batch, info=info))
                     pbar.update()
-                    if (batch_id % self.visualize_every == 0) or (
-                        batch_id == len(test_dl) - 1
-                    ):
-                        self._visualize(info, batch, epoch, "test")
+                    if (
+                        (batch_id % self.visualize_every == 0)
+                        or (batch_id == len(test_dl) - 1)
+                    ) and "visualizer" in self.conf.test:
+                        self.visualizers[self.conf.test.visualizer](
+                            info, batch, epoch, "test"
+                        )
 
                 # gather all results at rank 0 replica
                 if self.is_dist:
