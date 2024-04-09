@@ -194,6 +194,7 @@ def main(args, dist_pack):
     )
 
     trainer.fit(
+        args=args,
         output_path=args.output_path,
         run_name=args.run_name,
         mock_batch_count=args.mock_batch_count,

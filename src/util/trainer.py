@@ -37,6 +37,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import gc
 from functools import partial, reduce
 from torch.utils.data._utils.collate import default_collate
+import datetime, time
+import glob
 
 
 def validate_conf(
@@ -648,14 +650,12 @@ class Trainer:
 
         if self.do_out:
             os.makedirs(os.path.join(output_path, "ckpts"))
-            # dump configs
-            with open(os.path.join(output_path, "configuration.yaml"), "w") as file:
-                yaml.dump(OmegaConf.to_container(self.conf), file)
 
         return output_path
 
     def _init_fit(
         self,
+        args,
         output_path,
         run_name: str,
         resume_dir: str = None,
@@ -671,7 +671,22 @@ class Trainer:
                     f"Provided resume directory ({resume_dir}) dose not exist"
                 )
 
-            old_config = load_config(os.path.join(resume_dir, "configuration.yaml"))
+            # find the latest resumption
+            old_config_paths = glob.glob(
+                os.path.join(resume_dir, "configuration*.yaml")
+            )
+            resume_id = len(old_config_paths)
+            if resume_id == 1:
+                old_config_path = os.path.join(resume_dir, "configuration.yaml")
+                assert old_config_paths[0] == old_config_path
+            else:
+                old_config_path = os.path.join(
+                    resume_dir, f"configuration{resume_id-1}.yaml"
+                )
+            new_config_path = os.path.join(resume_dir, f"configuration{resume_id}.yaml")
+            new_args_path = os.path.join(resume_dir, f"args{resume_id}.yaml")
+
+            old_config = load_config(old_config_path)
             if old_config != self.conf:
                 if not force_resume:
                     raise AssertionError(
@@ -730,6 +745,32 @@ class Trainer:
             if self.do_test:
                 for nm, eval in self.evaluators.items():
                     eval.set_out_path(os.path.join(output_path, "evals", nm))
+
+            # log the invocation information
+            info = [
+                "Start time: "
+                + datetime.datetime.now().strftime(
+                    "%Y-%m-%d %H:%M:%S " + f"({time.tzname[0]})"
+                ),
+            ]
+            info_path = os.path.join(output_path, "info.txt")
+            if resume_dir is None:
+                with open(info_path, "a") as handler:
+                    handler.write("".join(info))
+
+                with open(os.path.join(output_path, "configuration.yaml"), "w") as file:
+                    yaml.dump(OmegaConf.to_container(self.conf), file)
+                with open(os.path.join(output_path, "args.yaml"), "w") as file:
+                    yaml.dump(vars(args), file)
+            else:
+                info = ["\n", f"----------- Resumption {resume_id} -----------"] + info
+                with open(info_path, "a") as handler:
+                    handler.write("\n".join(info))
+
+                with open(new_config_path, "w") as file:
+                    yaml.dump(OmegaConf.to_container(self.conf), file)
+                with open(new_args_path, "w") as file:
+                    yaml.dump(vars(args), file)
 
         return output_path, min_loss, start_epoch, best_epoch, history
 
@@ -1085,6 +1126,7 @@ class Trainer:
 
     def fit(
         self,
+        args,
         output_path: str = "out",
         run_name: str = None,
         mock_batch_count: Sequence[int] = [-1],
@@ -1095,7 +1137,7 @@ class Trainer:
     ) -> None:
 
         output_path, min_loss, start_epoch, best_epoch, history = self._init_fit(
-            output_path, run_name, resume_dir, force_resume
+            args, output_path, run_name, resume_dir, force_resume
         )
 
         train_ds, val_ds, test_ds = self._get_datasets(mock_batch_count)
