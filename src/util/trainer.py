@@ -1179,7 +1179,6 @@ class Trainer:
                             )
                             break
 
-                torch.cuda.synchronize()
                 torch.cuda.empty_cache()
                 gc.collect()
                 gc.collect(0)
