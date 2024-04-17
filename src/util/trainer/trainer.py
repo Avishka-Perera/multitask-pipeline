@@ -920,8 +920,8 @@ class Trainer:
                     else:
                         info = self.learner(batch)
 
-                    # for nm, eval in self.evaluators.items():
-                    #     results[nm].append(eval.process_batch(batch=batch, info=info))
+                    for nm, eval in self.evaluators.items():
+                        results[nm].append(eval.process_batch(batch=batch, info=info))
                     pbar.update()
                     if (
                         (batch_id % self.visualize_every == 0)
@@ -1083,17 +1083,17 @@ class Trainer:
             if self.is_dist:
                 dist.barrier()
 
-        if self.do_test:
-            if self.do_train:
-                if os.path.exists(best_ckpt_path):
-                    sd = torch.load(best_ckpt_path)["learner"]
-                else:
-                    sd = torch.load(final_ckpt_path)["learner"]
-                if self.is_dist:
-                    self.learner.module.load_state_dict(sd)
-                else:
-                    self.learner.load_state_dict(sd)
+        # if self.do_test:
+        #     if self.do_train:
+        #         if os.path.exists(best_ckpt_path):
+        #             sd = torch.load(best_ckpt_path)["learner"]
+        #         else:
+        #             sd = torch.load(final_ckpt_path)["learner"]
+        #         if self.is_dist:
+        #             self.learner.module.load_state_dict(sd)
+        #         else:
+        #             self.learner.load_state_dict(sd)
 
-            self._test_loop(show_pbar=show_pbar, epoch=epoch, test_dl=test_dl)
+        #     self._test_loop(show_pbar=show_pbar, epoch=epoch, test_dl=test_dl)
 
         self.logger.info(f"Single-staged training successful!\n")
