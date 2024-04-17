@@ -9,25 +9,24 @@ from torch import autocast
 from tqdm import tqdm
 import pandas as pd
 import omegaconf
-from .logger import Logger
-from .util import (
+from ..logger import Logger
+from ..util import (
     yaml_loader,
     load_class,
     make_obj_from_conf,
-    validate_keys,
     fix_list_len,
     load_config,
     load_model_states,
     are_lists_equal,
 )
-from .dist import get_is_dist, get_mixed_prec
-from .reporting import history_to_csv, history_to_img
-from ..losses import BaseLoss
-from ..evaluators import BaseEvaluator
-from ..visualizers import BaseVisualizer
-from ..learners import BaseLearner
-from ..datasets import BaseDataset, ConcatSet
-from .data import ParallelDataLoader
+from ..dist import get_is_dist, get_mixed_prec
+from ..reporting import history_to_csv, history_to_img
+from ...losses import BaseLoss
+from ...evaluators import BaseEvaluator
+from ...visualizers import BaseVisualizer
+from ...learners import BaseLearner
+from ...datasets import BaseDataset, ConcatSet
+from ..data import ParallelDataLoader
 from torch.utils.data import Dataset
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LRScheduler
@@ -39,221 +38,14 @@ from functools import partial, reduce
 from torch.utils.data._utils.collate import default_collate
 import datetime, time
 import glob
-
-
-def validate_conf(
-    conf: omegaconf.OmegaConf,
-    data_dir: str,
-    devices: Sequence[int],
-    logger: Logger = None,
-    validate_datasets=True,
-) -> None:
-    do_train = "train" in conf.keys()
-    do_val = "val" in conf.keys()
-    do_test = "test" in conf.keys()
-
-    # validate root configuration
-    root_required_keys = [
-        "name",
-        "datasets",
-        "learner",
-        "epochs",
-    ]
-    root_possible_keys = root_required_keys + [
-        "loss",
-        "optimizer",
-        "lr_scheduler",
-        "train",
-        "val",
-        "test",
-        "checkpoints",
-        "visualizers",
-        "augmentors",
-    ]
-    validate_keys(conf.keys(), root_required_keys, root_possible_keys, "conf")
-    if do_val and not do_train:
-        raise AttributeError(
-            "If 'val' configuration is defined, 'train' must also be defined"
-        )
-    if do_train and any([k not in conf.keys() for k in ["loss", "optimizer"]]):
-        raise AttributeError(
-            "'loss' and 'optimizer' must be defined if 'train' is defined"
-        )
-
-    # validate datasets
-    if validate_datasets:
-        datasets = load_datasets(conf)
-        for k, ds in datasets.items():
-            assert len(ds) > 0, f"Dataset '{k}' has length 0."
-
-    # validate the learner configuration
-    learner_required_keys = ["target"]
-    learner_possible_keys = learner_required_keys + [
-        "params",
-        "local_device_maps",
-        "freeze",
-    ]
-    validate_keys(
-        conf.learner.keys(),
-        learner_required_keys,
-        learner_possible_keys,
-        "conf.learner",
-    )
-    if "local_device_maps" in conf.learner.keys():
-        if len(conf.learner.local_device_maps) > len(devices):
-            raise AttributeError(
-                f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of 'conf.learner.local_device_maps'({len(conf.learner.local_device_maps)})"
-            )
-
-    if do_train:
-        # start validate the loss configurations
-        loss_required_keys = ["target"]
-        loss_possible_keys = loss_required_keys + ["params", "local_device_maps"]
-
-        def validate_loss_conf(
-            loss_conf: omegaconf.dictconfig.DictConfig, loss_conf_name: str
-        ) -> None:
-            validate_keys(
-                loss_conf.keys(),
-                loss_required_keys,
-                loss_possible_keys,
-                loss_conf_name,
-            )
-
-        if "target" in (conf.loss):
-            validate_loss_conf(conf.loss, "conf.loss")
-        else:
-            if type(conf.loss) == omegaconf.listconfig.ListConfig:
-                availabe_losses = []
-                for i, loss_conf in enumerate(conf.loss):
-                    validate_loss_conf(loss_conf, f"conf.loss[{i}]")
-                    if loss_conf.target in availabe_losses:
-                        raise ValueError(
-                            f"Same error cannot be repeated multiple times"
-                        )
-                    availabe_losses.append(loss_conf.target)
-            else:
-                loss_names = list(conf.loss.keys())
-                if "loss" in conf.train:
-                    assert all(
-                        [nm in loss_names for nm in conf.train.loss]
-                    ), "'conf.train.loss' must only specify losses defined at 'conf.loss'"
-                if "val" in conf and "loss" in conf.val:
-                    assert all(
-                        [nm in loss_names for nm in conf.val.loss]
-                    ), "'conf.val.loss' must only specify losses defined at 'conf.loss'"
-                for nm, loss_conf in conf.loss.items():
-                    validate_loss_conf(loss_conf, f"conf.loss.{nm}")
-
-        # validate the optimizer configurations
-        optimizer_required_keys = ["target"]
-        optimizer_possible_keys = optimizer_required_keys + ["params"]
-        validate_keys(
-            conf.optimizer.keys(),
-            optimizer_required_keys,
-            optimizer_possible_keys,
-            "conf.optimizer",
-        )
-
-    # validate the lr_scheduler configurations
-    if "lr_scheduler" in conf.keys():
-        lr_scheduler_required_keys = ["target"]
-        lr_scheduler_possible_keys = lr_scheduler_required_keys + ["params"]
-        validate_keys(
-            conf.lr_scheduler.keys(),
-            lr_scheduler_required_keys,
-            lr_scheduler_possible_keys,
-            "conf.lr_scheduler",
-        )
-
-    # validate augmentors
-    if "augmentors" in conf.keys():
-        for aug_nm, aug_conf in conf.augmentors.items():
-            aug_required_keys = ["target"]
-            aug_possible_keys = aug_required_keys + ["params"]
-            validate_keys(
-                aug_conf.keys(),
-                aug_required_keys,
-                aug_possible_keys,
-                f"conf.augmentors['{aug_nm}']",
-            )
-
-    # start validate the train configurations
-    if do_train:
-        train_required_keys = ["dataset", "loader_params"]
-        train_possible_keys = train_required_keys + [
-            "tollerance",
-            "augmentor",
-            "visualizer",
-        ]
-        validate_keys(
-            conf.train.keys(),
-            train_required_keys,
-            train_possible_keys,
-            "conf.train",
-        )
-        # validate that the datasets are defined under conf.datasets
-        if type(conf.train.dataset) == str:
-            assert (
-                conf.train.dataset in conf.datasets
-            ), "Only datasets defined under conf.datasets are possible under `conf.train.dataset`"
-        else:
-            for ds_nm in conf.train.dataset:
-                assert (
-                    ds_nm in conf.datasets
-                ), "Only datasets defined under conf.datasets are possible under `conf.train.dataset`"
-        # validate augmentor config
-        if "augmentor" in conf.train.keys():
-            assert (type(conf.train.augmentor) == str) and (
-                conf.train.augmentor in conf.augmentors
-            ), "`conf.train.augmentor` must be a name of an augmentor defined at `conf.augmentors`"
-    # end validate the train configurations
-
-    # start validate the val configurations
-    if do_val:
-        val_required_keys = ["loader_params", "dataset"]
-        val_possible_keys = val_required_keys + ["loss", "visualizer", "augmentor"]
-        validate_keys(
-            conf.val.keys(),
-            val_required_keys,
-            val_possible_keys,
-            "conf.val",
-        )
-        # validate that the datasets are defined under conf.datasets
-        if type(conf.val.dataset) == str:
-            assert (
-                conf.val.dataset in conf.datasets
-            ), "Only datasets defined under conf.datasets are possible under `conf.val.dataset`"
-        else:
-            for ds_nm in conf.val.dataset:
-                assert (
-                    ds_nm in conf.datasets
-                ), "Only datasets defined under conf.datasets are possible under `conf.val.dataset`"
-    # end validate the val configurations
-
-    # TODO: validate the test configuration
-
-    if logger is not None:
-        logger.info(f"Single task configuration for '{conf.name}' valid")
-
-
-def load_datasets(conf) -> Sequence[BaseDataset] | BaseDataset:
-    datasets = {}
-    for ds_nm, ds_conf in conf.datasets.items():
-        datasets[ds_nm] = make_obj_from_conf(ds_conf)
-    return datasets
+from .util import validate_conf, load_datasets
 
 
 class Trainer:
     already_trained_msg = "Training already done!"
 
-    def _load_datasets(
-        self,
-    ) -> Sequence[BaseDataset] | BaseDataset:
-        datasets = {}
-        for ds_nm, ds_conf in self.conf.datasets.items():
-            datasets[ds_nm] = make_obj_from_conf(ds_conf)
-        self.datasets = datasets
+    def _load_datasets(self) -> None:
+        self.datasets = load_datasets(self.conf)
 
     def _load_learner(self):
         learner_class = load_class(self.conf.learner.target)
@@ -352,50 +144,16 @@ class Trainer:
             learner_map_info = ckpt_map_info.learner
             load_model_states(learner, sd, learner_map_info)
 
-    def _load_loss(self):
-        if self.do_train:
-
-            def load_single_loss(loss_conf: omegaconf.dictconfig.DictConfig):
-                loss_class = load_class(loss_conf.target)
-
+    def _load_losses(self):
+        if "losses" in self.conf:
+            self.losses = {}
+            for loss_nm, loss_conf in self.conf.losses.items():
                 # map devices
-                if "local_device_maps" in loss_conf.keys():
-                    if type(loss_conf.local_device_maps) == int:
-                        device = self.devices[loss_conf.local_device_maps]
-                    else:
-                        if loss_conf.target != "mt_pipe.src.losses.ConcatLoss":
-                            raise ValueError(
-                                "If not using 'mt_pipe.src.losses.ConcatLoss', local_device_maps must be an integer"
-                            )
-                        if not are_lists_equal(
-                            list(loss_conf.local_device_maps.keys()),
-                            list(self.conf.loss.params.conf.keys()),
-                        ):
-                            raise ValueError(
-                                "When local_device_maps are specified, 'conf.loss.local_device_maps' and 'conf.loss.params.conf' must have the same keys."
-                            )
-                        device = {}
-                        for k in loss_conf.local_device_maps.keys():
-                            device[k] = self.devices[loss_conf.local_device_maps[k]]
+                if "local_device_map" in loss_conf.keys():
+                    device = self.devices[loss_conf.local_device_map]
                 else:
                     device = self.devices[-1]
-
-                self.logger.info(f"Loss: using device: {device}")
-
-                # create the loss object
-                loss_params = (
-                    dict(loss_conf.params) if "params" in loss_conf.keys() else {}
-                )
-                loss = loss_class(
-                    **loss_params,
-                    device=device,
-                )
-
-                return loss
-
-            loss_fn: BaseLoss = load_single_loss(self.conf.loss)
-            self.train_loss_fn = loss_fn
-            self.val_loss_fn = loss_fn
+                self.losses[loss_nm] = make_obj_from_conf(loss_conf, device=device)
 
     def _load_training_objects(self):
         if self.do_train:
@@ -510,7 +268,7 @@ class Trainer:
             self._load_states(
                 weights_conf["ckpt_path"], weights_conf["ckpt_map_conf_path"]
             )
-        self._load_loss()
+        self._load_losses()
         self._load_evaluator()
         self._load_visualizer()
         self._load_augmentors()
