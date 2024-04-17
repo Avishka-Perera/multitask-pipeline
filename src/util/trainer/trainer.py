@@ -241,13 +241,13 @@ class Trainer:
             logger=self.logger,
         )
 
-    def _load_evaluator(self) -> None:
-        self.evaluators: Dict[str, BaseEvaluator] = {}
-        if self.do_test:
-            for eval_nm, eval_conf in self.conf.test.evaluators.items():
-                eval_class = load_class(eval_conf.target)
-                params = dict(eval_conf.params) if "params" in eval_conf else {}
-                self.evaluators[eval_nm] = eval_class(**params)
+    # def _load_evaluator(self) -> None:
+    #     self.evaluators: Dict[str, BaseEvaluator] = {}
+    #     if self.do_test:
+    #         for eval_nm, eval_conf in self.conf.test.evaluators.items():
+    #             eval_class = load_class(eval_conf.target)
+    #             params = dict(eval_conf.params) if "params" in eval_conf else {}
+    #             self.evaluators[eval_nm] = eval_class(**params)
 
     def _load_visualizer(self) -> None:
         self.visualizers: Dict[str, BaseVisualizer] = {}
@@ -359,7 +359,7 @@ class Trainer:
                 weights_conf["ckpt_path"], weights_conf["ckpt_map_conf_path"]
             )
         self._load_losses()
-        self._load_evaluator()
+        # self._load_evaluator()
         self._load_visualizer()
         self._load_augmentors()
         self.use_amp = use_amp
@@ -590,9 +590,9 @@ class Trainer:
             self.logger.init_plotter(os.path.join(output_path, "logs"), model)
             for vis in self.visualizers.values():
                 vis.set_writer(self.logger.writer)
-            if self.do_test:
-                for nm, eval in self.evaluators.items():
-                    eval.set_out_path(os.path.join(output_path, "evals", nm))
+            # if self.do_test:
+            #     for nm, eval in self.evaluators.items():
+            #         eval.set_out_path(os.path.join(output_path, "evals", nm))
 
             # log the invocation information
             info = [
@@ -920,8 +920,8 @@ class Trainer:
                     else:
                         info = self.learner(batch)
 
-                    for nm, eval in self.evaluators.items():
-                        results[nm].append(eval.process_batch(batch=batch, info=info))
+                    # for nm, eval in self.evaluators.items():
+                    #     results[nm].append(eval.process_batch(batch=batch, info=info))
                     pbar.update()
                     if (
                         (batch_id % self.visualize_every == 0)
@@ -951,11 +951,7 @@ class Trainer:
                         eval.output(results[nm])
 
     def _get_fit_info(self, mock_epoch_count, train_dl, val_dl):
-        tollerance = (
-            self.conf.tollerance
-            if "tollerance" in self.conf
-            else -1
-        )
+        tollerance = self.conf.tollerance if "tollerance" in self.conf else -1
         if self.do_train:
             train_batch_count = len(train_dl)
         else:
