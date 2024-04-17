@@ -63,7 +63,7 @@ def validate_conf(
             "val",
             "test",
             "checkpoints",
-            "tollerence",
+            "tollerance",
         ]
         validate_keys(conf.keys(), root_required_keys, root_possible_keys, "conf")
         if do_val and not do_train:
@@ -232,11 +232,11 @@ def validate_conf(
                 type(ckpt.name) == str
             ), f"conf.checkpoints[{i}].name must be a string"
 
-    # validate tollerence
-    if "tollerence" in conf:
+    # validate tollerance
+    if "tollerance" in conf:
         assert (
-            type(conf.tollerence) == int and conf.tollerence > 0
-        ), "conf.tollerence must be a positive integer"
+            type(conf.tollerance) == int and conf.tollerance > 0
+        ), "conf.tollerance must be a positive integer"
 
     if logger is not None:
         logger.info(f"Single task configuration for '{conf.name}' valid")

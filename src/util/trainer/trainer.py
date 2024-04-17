@@ -952,8 +952,8 @@ class Trainer:
 
     def _get_fit_info(self, mock_epoch_count, train_dl, val_dl):
         tollerance = (
-            self.conf.train.tollerance
-            if "train" in self.conf and "tollerance" in self.conf.train
+            self.conf.tollerance
+            if "tollerance" in self.conf
             else -1
         )
         if self.do_train:
