@@ -135,18 +135,19 @@ class ParallelDataLoader:
     def __init__(self, dataloaders) -> None:
         assert len(dataloaders) > 1, "Length of dataloaders should be greater than to 1"
         self.dataloaders = dataloaders
-        self.iterators = [iter(dl) for dl in self.dataloaders]
+        self.iterators = {dp: iter(dl) for dp, dl in self.dataloaders.items()}
 
     def __len__(self) -> int:
-        return min([len(dl) for dl in self.dataloaders])
+        return min([len(dl) for dl in self.dataloaders.values()])
 
     def __iter__(self):
-        self.iterators = [iter(dl) for dl in self.dataloaders]
+        self.iterators = {dp: iter(dl) for dp, dl in self.dataloaders.items()}
         return self
 
     def __next__(self):
         try:
-            batch = {k: v for iter in self.iterators for k, v in next(iter).items()}
+            # batch = {k: v for iter in self.iterators for k, v in next(iter).items()}
+            batch = {dp: next(dl_iter) for dp, dl_iter in self.iterators.items()}
             return batch
         except StopIteration:
             self.iterators = [iter(loader) for loader in self.dataloaders]

@@ -1,7 +1,7 @@
 from torch import nn
 from typing import Sequence, Dict
-from .util import load_class
-from ..learners import BaseLearner
+from ..util import load_class
+from ...learners import BaseLearner
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 
@@ -20,13 +20,13 @@ class LearnerMux(nn.Module):
         backbone_params = dict(encoder.params) if "params" in encoder else {}
         self.encoder = backbone_cls(**backbone_params)
         chldrn = OmegaConf.create(chldrn)
-        child_names = []
-        for ch_nm, conf in chldrn.items():
-            child_names.append(ch_nm)
+        datapath_names = []
+        for dp_nm, conf in chldrn.items():
+            datapath_names.append(dp_nm)
             ch_cls = load_class(conf.target)
             params = conf.params if "params" in conf else {}
             ch_obj: BaseLearner = ch_cls(encoder=self.encoder, **params)
-            setattr(self, ch_nm, ch_obj)
+            setattr(self, dp_nm, ch_obj)
 
             # # fill missing params with default params (full)
             # if "out_map" not in conf:
@@ -39,17 +39,17 @@ class LearnerMux(nn.Module):
             #             conf["in_map"][path_name] = "full"
 
         self.chldrn_confs = chldrn
-        self.child_names = child_names
+        self.datapath_names = datapath_names
 
     def set_devices(self, devices: Sequence[int] | Dict[str, Sequence[int]]) -> None:
         self.devices = devices
         if type(devices) == dict:
-            for ch_nm, dvs in devices.items():
-                ln = getattr(self, ch_nm)
+            for dp_nm, dvs in devices.items():
+                ln = getattr(self, dp_nm)
                 ln.set_devices(dvs)
         else:
-            for ch_nm in self.child_names:
-                ln = getattr(self, ch_nm)
+            for dp_nm in self.datapath_names:
+                ln = getattr(self, dp_nm)
                 ln.set_devices(devices)
 
     def forward(self, batch):
@@ -69,7 +69,9 @@ class LearnerMux(nn.Module):
         #             out.update(ch_ln_out)
         #         else:
         #             out[out_nm] = ch_ln_out
-        for ch_nm in self.child_names:
-            out[ch_nm] = batch[ch_nm]
+        for dp in self.datapath_names:
+            ln = getattr(self, dp)
+            out[dp] = ln(batch[dp])
+            batch[dp]["curr_epoch"] = batch["curr_epoch"]
 
         return out

@@ -1,8 +1,9 @@
 from typing import Sequence
 from omegaconf import OmegaConf, ListConfig
-from ..util import validate_keys, make_obj_from_conf
+from ..util import validate_keys, load_class, make_obj_from_conf
 from ...datasets import BaseDataset
 from ..logger import Logger
+from ..muxes.learner import LearnerMux
 
 
 def load_datasets(conf) -> Sequence[BaseDataset] | BaseDataset:
@@ -103,7 +104,7 @@ def validate_conf(
                 raise AttributeError(
                     f"The number of specified 'devices' ({len(devices)}) must be greater than or equal to the number of 'conf.learner.local_device_maps'({len(conf.learner.local_device_maps)})"
                 )
-        if conf.learner.target == "mt_pipe.src.util.learner_mux.LearnerMux":
+        if load_class(conf.learner.target) == LearnerMux:
             parallel_dataloader = True
             datapath_names = list(conf.learner.params.chldrn.keys())
         else:

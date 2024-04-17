@@ -18,7 +18,7 @@ from .util import (
 from .logger import Logger
 from .grad_analyzer import GradAnalyzer
 from .trainer import Trainer
-from .learner_mux import LearnerMux
+from .muxes import LearnerMux
 
 __all__ = [
     "are_lists_equal",

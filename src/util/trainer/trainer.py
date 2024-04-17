@@ -39,6 +39,7 @@ from torch.utils.data._utils.collate import default_collate
 import datetime, time
 import glob
 from .util import validate_conf, load_datasets
+from ..muxes import LearnerMux, LossMux, VisualizerMux
 
 
 class Trainer:
@@ -49,6 +50,11 @@ class Trainer:
 
     def _load_learner(self):
         learner_class = load_class(self.conf.learner.target)
+
+        if learner_class == LearnerMux:
+            self.parallel_data = True
+        else:
+            self.parallel_data = False
 
         # function to correct the devices
         def get_correct_device_lst(devices, device_cnt):
@@ -83,10 +89,7 @@ class Trainer:
                     self.conf.learner.local_device_maps, learner_class.device_count
                 )
             else:
-                if (
-                    self.conf.learner.target
-                    != "mt_pipe.src.util.learner_mux.LearnerMux"
-                ):
+                if learner_class != LearnerMux:
                     raise ValueError(
                         "If not using 'mt_pipe.src.util.learner_mux.LearnerMux', local_device_maps must be an integer list"
                     )
@@ -155,6 +158,27 @@ class Trainer:
                     device = self.devices[-1]
                 self.losses[loss_nm] = make_obj_from_conf(loss_conf, device=device)
 
+        if self.do_train:
+            if self.parallel_data:
+                self.train_loss_fn = LossMux(
+                    {
+                        dp: self.losses[dp_conf.loss]
+                        for dp, dp_conf in self.conf.train.items()
+                    }
+                )
+            else:
+                self.train_loss_fn = self.losses[self.conf.train.loss]
+        if self.do_val:
+            if self.parallel_data:
+                self.val_loss_fn = LossMux(
+                    {
+                        dp: self.losses[dp_conf.loss]
+                        for dp, dp_conf in self.conf.val.items()
+                    }
+                )
+            else:
+                self.val_loss_fn = self.losses[self.conf.val.loss]
+
     def _load_training_objects(self):
         if self.do_train:
             if "optimizer" in self.conf:
@@ -211,6 +235,53 @@ class Trainer:
         if "visualizers" in self.conf:
             for visu_nm, visu_conf in self.conf.visualizers.items():
                 self.visualizers[visu_nm] = make_obj_from_conf(visu_conf, name=visu_nm)
+
+        empty_visualizer = lambda info, batch, epoch, loop: None
+        if self.do_train:
+            if self.parallel_data:
+                self.train_visualizer = VisualizerMux(
+                    {
+                        dp: (self.visualizers[dp_conf.visualizer])
+                        for dp, dp_conf in self.conf.train.items()
+                        if "visualizer" in dp_conf
+                    }
+                )
+            else:
+                self.train_visualizer = (
+                    self.visualizers[self.conf.train.visualizer]
+                    if "visualizer" in self.conf.train
+                    else empty_visualizer
+                )
+        if self.do_val:
+            if self.parallel_data:
+                self.val_visualizer = VisualizerMux(
+                    {
+                        dp: (self.visualizers[dp_conf.visualizer])
+                        for dp, dp_conf in self.conf.val.items()
+                        if "visualizer" in dp_conf
+                    }
+                )
+            else:
+                self.val_visualizer = (
+                    self.visualizers[self.conf.val.visualizer]
+                    if "visualizer" in self.conf.val
+                    else empty_visualizer
+                )
+        if self.do_test:
+            if self.parallel_data:
+                self.test_visualizer = VisualizerMux(
+                    {
+                        dp: (self.visualizers[dp_conf.visualizer])
+                        for dp, dp_conf in self.conf.test.items()
+                        if "visualizer" in dp_conf
+                    }
+                )
+            else:
+                self.test_visualizer = (
+                    self.visualizers[self.conf.test.visualizer]
+                    if "visualizer" in self.conf.test
+                    else empty_visualizer
+                )
 
     def _load_augmentors(self) -> None:
         self.augmentors = {}
@@ -537,9 +608,11 @@ class Trainer:
     ) -> Sequence[Dataset] | Sequence[Dict[str, Dataset]]:
         """
         Collects the loaded datasets according to the requests in the loop definitions.
-            If a loop definition requests a single dataset (e.g.: `conf.train.dataset: ds-1`), then a usual dataset object is returned
-            If a loop definition requests multiple datasets (e.g.: `conf.train.dataset: {task1: ds-1, task2: ds-2}`), then a distionary containing the requested datasets is returned
+            If a loop definition requests a single dataset (e.g.: `conf.train.dataset: ds-1`), then a usual dataset object is collected
+            If a loop definition requests multiple datasets (e.g.: `conf.train.datapath1.dataset: ds-1), then a distionary containing the requested datasets is collected
                 This is used in the case of multi-task training with parallel dataloaders
+
+        The collected datasets for each three loops are the returned as tuple. In case of a loop not being defined, a None object will be returned
 
         Furthermore, the length of the datasets are adjusted according to the specified mock_bacth_count
             default is -1. i.e., dataset is collected as it is
@@ -557,15 +630,15 @@ class Trainer:
             val_mock_batch_count = train_mock_batch_count
             test_mock_batch_count = train_mock_batch_count
 
-        def wrap_dataset(dataset, mock_batch_count, batch_size):
-            if mock_batch_count == -1:
+        def wrap_dataset(dataset, loop_mock_batch_count, batch_size):
+            if loop_mock_batch_count == -1:
                 return dataset
             else:
                 return Subset(
                     dataset,
                     range(
                         min(
-                            batch_size * mock_batch_count * self.world_size,
+                            batch_size * loop_mock_batch_count * self.world_size,
                             len(dataset),
                         )
                     ),
@@ -573,53 +646,53 @@ class Trainer:
 
         train_ds, val_ds, test_ds = [None] * 3
         if self.do_train:
-            if type(self.conf.train.dataset) == str:
+            if self.parallel_data:
+                train_ds = {
+                    dp_name: wrap_dataset(
+                        self.datasets[dp_conf.dataset],
+                        train_mock_batch_count,
+                        dp_conf.loader_params.batch_size,
+                    )
+                    for dp_name, dp_conf in self.conf.train.items()
+                }
+            else:
                 train_ds = wrap_dataset(
                     self.datasets[self.conf.train.dataset],
                     train_mock_batch_count,
                     self.conf.train.loader_params.batch_size,
                 )
-            else:
-                train_ds = {
-                    k: wrap_dataset(
-                        self.datasets[v],
-                        train_mock_batch_count,
-                        self.conf.train.loader_params.batch_size,
-                    )
-                    for k, v in self.conf.train.dataset.items()
-                }
         if self.do_val:
-            if type(self.conf.val.dataset) == str:
+            if self.parallel_data:
+                val_ds = {
+                    dp_name: wrap_dataset(
+                        self.datasets[dp_conf.dataset],
+                        val_mock_batch_count,
+                        dp_conf.loader_params.batch_size,
+                    )
+                    for dp_name, dp_conf in self.conf.val.items()
+                }
+            else:
                 val_ds = wrap_dataset(
                     self.datasets[self.conf.val.dataset],
                     val_mock_batch_count,
                     self.conf.val.loader_params.batch_size,
                 )
-            else:
-                val_ds = {
-                    k: wrap_dataset(
-                        self.datasets[v],
-                        val_mock_batch_count,
-                        self.conf.val.loader_params.batch_size,
-                    )
-                    for k, v in self.conf.val.dataset.items()
-                }
         if self.do_test:
-            if type(self.conf.test.dataset) == str:
+            if self.parallel_data:
+                test_ds = {
+                    dp_name: wrap_dataset(
+                        self.datasets[dp_conf.dataset],
+                        test_mock_batch_count,
+                        dp_conf.loader_params.batch_size,
+                    )
+                    for dp_name, dp_conf in self.conf.test.items()
+                }
+            else:
                 test_ds = wrap_dataset(
                     self.datasets[self.conf.test.dataset],
                     test_mock_batch_count,
                     self.conf.test.loader_params.batch_size,
                 )
-            else:
-                test_ds = {
-                    k: wrap_dataset(
-                        self.datasets[v],
-                        test_mock_batch_count,
-                        self.conf.test.loader_params.batch_size,
-                    )
-                    for k, v in self.conf.test.dataset.items()
-                }
 
         return train_ds, val_ds, test_ds
 
@@ -630,12 +703,12 @@ class Trainer:
         test_ds: Sequence[Dataset] | Sequence[Dict[str, Dataset]],
     ):
 
-        def process_loader_params(split_conf: OmegaConf, ds) -> Dict:
-            new_loader_params = OmegaConf.to_container(split_conf.loader_params)
+        def process_loader_params(datapath_conf: OmegaConf, ds) -> Dict:
+            new_loader_params = OmegaConf.to_container(datapath_conf.loader_params)
 
             # add the augmentor
-            if "augmentor" in split_conf:
-                augmentor = self.augmentors[split_conf.augmentor]
+            if "augmentor" in datapath_conf:
+                augmentor = self.augmentors[datapath_conf.augmentor]
 
                 def new_collate_fn(batch):
                     if hasattr(augmentor, "pre_collate_routine"):
@@ -655,50 +728,63 @@ class Trainer:
                 new_loader_params["collate_fn"] = new_collate_fn
 
             if self.is_dist:
-                if "sampler" in split_conf.loader_params:
-                    sampler_class = load_class(split_conf.loader_params.sampler.target)
+                if "sampler" in datapath_conf.loader_params:
+                    sampler_class = load_class(
+                        datapath_conf.loader_params.sampler.target
+                    )
                 else:
                     sampler_class = DistributedSampler
                 new_loader_params["sampler"] = sampler_class(
                     ds, self.world_size, self.rank
                 )
             else:
-                if "sampler" in split_conf.loader_params:
+                if "sampler" in datapath_conf.loader_params:
                     raise NotImplementedError(
                         "Custom sampler usage is not implemented for non-DDP setups"
                     )
 
             return new_loader_params
 
-        def get_loader(dss, split_conf):
-            def get_single_loader(ds, split_conf):
-                params = process_loader_params(split_conf, ds)
+        def get_loader(dss, split_conf, split_nm):
+            def get_single_loader(ds, datapath_conf):
+                params = process_loader_params(datapath_conf, ds)
                 sampler = params["sampler"] if "sampler" in params else None
                 loader = DataLoader(ds, **dict(params))
                 return loader, sampler
 
             if type(dss) == dict:
-                samplers, dls = [], []
-                for nm, ds in dss.items():
-                    loader, sampler = get_single_loader(ds, split_conf[nm])
-                    dls.append(loader)
+                samplers, dls, lens = [], {}, {}
+                for dp, ds in dss.items():
+                    loader, sampler = get_single_loader(ds, split_conf[dp])
+                    dls[dp] = loader
+                    lens[dp] = len(loader)
                     samplers.append(sampler)
                 loader = ParallelDataLoader(dls)
+
+                parallel_dl_len = len(loader)
+                for dp_nm, dp_len in lens.items():
+                    loss = dp_len - parallel_dl_len
+                    loss_frac = loss / dp_len
+                    if loss_frac > 0.1:
+                        self.logger.warn(
+                            f"{round(loss_frac*100,1)}% of the dataloader in the datapath '{dp_nm}' for the split '{split_nm}' will be dropped. Try repeating the datasets of the smaller ones."
+                        )
+
                 return loader, samplers
             else:
                 loader, sampler = get_single_loader(dss, split_conf)
                 return loader, [sampler]
 
         if self.do_train:
-            train_dl, train_samplers = get_loader(train_ds, self.conf.train)
+            train_dl, train_samplers = get_loader(train_ds, self.conf.train, "train")
         else:
             train_dl, train_samplers = None, [None]
         if self.do_val:
-            val_dl, val_samplers = get_loader(val_ds, self.conf.val)
+            val_dl, val_samplers = get_loader(val_ds, self.conf.val, "val")
         else:
             val_dl, val_samplers = None, [None]
         if self.do_test:
-            test_dl, test_samplers = get_loader(test_ds, self.conf.test)
+            test_dl, test_samplers = get_loader(test_ds, self.conf.test, "test")
         else:
             test_dl, test_samplers = None, [None]
 
@@ -736,13 +822,10 @@ class Trainer:
                 if self.do_out:
                     pbar.set_postfix(loss=train_loss)
                     pbar.update(1)
-                    if (
-                        (batch_id % self.visualize_every == 0)
-                        or (batch_id == train_batch_count - 1)
-                    ) and "visualizer" in self.conf.train:
-                        self.visualizers[self.conf.train.visualizer](
-                            info, batch, epoch, "train"
-                        )
+                    if (batch_id % self.visualize_every == 0) or (
+                        batch_id == train_batch_count - 1
+                    ):
+                        self.train_visualizer(info, batch, epoch, "train")
                 train_losses.append(train_loss)
 
             for batch_id, batch in enumerate(train_dl):
@@ -777,9 +860,7 @@ class Trainer:
                             (batch_id % self.visualize_every == 0)
                             or (batch_id == val_batch_count - 1)
                         ) and "visualizer" in self.conf.val:
-                            self.visualizers[self.conf.val.visualizer](
-                                info, batch, epoch, "val"
-                            )
+                            self.val_visualizer(info, batch, epoch, "val")
 
                         self.logger.plot(
                             "Loss (per epoch): Val",
@@ -827,9 +908,7 @@ class Trainer:
                         (batch_id % self.visualize_every == 0)
                         or (batch_id == len(test_dl) - 1)
                     ) and "visualizer" in self.conf.test:
-                        self.visualizers[self.conf.test.visualizer](
-                            info, batch, epoch, "test"
-                        )
+                        self.test_visualizer(info, batch, epoch, "test")
 
                 # gather all results at rank 0 replica
                 if self.is_dist:
