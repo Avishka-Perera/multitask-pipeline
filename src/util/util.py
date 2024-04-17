@@ -81,6 +81,8 @@ def load_class(target):
 
 
 def make_obj_from_conf(conf, **kwargs):
+    if isinstance(conf, omegaconf.DictConfig):
+        conf = omegaconf.OmegaConf.to_container(conf)
     cls = load_class(conf["target"])
     params = conf["params"] if "params" in conf else {}
     obj = cls(**params, **kwargs)
