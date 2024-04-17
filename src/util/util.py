@@ -238,7 +238,7 @@ def load_model_states(
                 state_dict,
             )
             if logger is not None:
-                logger.info(f"{i}, {status}")
+                logger.info(f"Checkpoint loading status for submodule {i}: {status}")
         else:
             source = source.strip(".")
             new_sd = {
@@ -248,7 +248,7 @@ def load_model_states(
             }
             status = module.load_state_dict(new_sd)
             if logger is not None:
-                logger.info(f"{i}, {status}")
+                logger.info(f"Checkpoint loading status for submodule {i}: {status}")
 
 
 def flatten_leads(tens: torch.Tensor, dim_count: int) -> torch.Tensor:

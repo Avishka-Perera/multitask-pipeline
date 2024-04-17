@@ -122,6 +122,25 @@ class Trainer:
             self.learner = learner
 
     def _load_states(self, ckpt_path: str, ckpt_map_conf_path: str = None) -> None:
+        """
+        Args:
+            1. ckpt_path: path to the checkpoints file. This must be a supported checkpoint file of a pure state_dict.
+                A supported checkpoint file must be a dictionary saved with torch.save with following keys.
+                    a. learner: state dictionary of the learner
+                    b. optimizer: state dictionary of the optimizer
+                    c. lr_scheduler: state dictionary of the learning-rate scheduler
+                    d. epoch: exported epoch number
+
+            2. ckpt_map_conf_path: path to the checkpoints-map file. This is a YAML file with the following shape
+                ```yaml
+                learner:
+                    - source: sourcelayer1
+                      target: targetlayer1
+                    - source: sourcelayer2
+                      target: targetlayer2
+                    ...
+                ```
+        """
         ckpt = torch.load(ckpt_path)
         if ckpt_map_conf_path is not None:
             with open(ckpt_map_conf_path) as handler:
