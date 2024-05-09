@@ -422,6 +422,12 @@ class Trainer:
             self.optimizer.step()
 
         if self.lr_scheduler:
+            self.logger.plot(
+                "Hyperparams",
+                "lr",
+                self.lr_scheduler.get_last_lr()[0],
+                epoch * batch_count + batch_id,
+            )
             self.lr_scheduler.step(epoch + (batch_id + 1) / batch_count)
 
         if self.analysis_level > 0 and self.do_out:
