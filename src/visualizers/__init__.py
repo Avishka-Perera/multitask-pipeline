@@ -17,17 +17,17 @@ class BaseVisualizer:
     def set_writer(self, writer: SummaryWriter) -> None:
         self.writer = writer
 
-    def _get_samples(self, window_width: int) -> Sequence[int]:
+    def _get_samples(self, input_count: int) -> Sequence[int]:
         if (
             self.max_imgs_per_batch is not None
-            and window_width > self.max_imgs_per_batch
+            and input_count > self.max_imgs_per_batch
         ):
-            samples = list(range(window_width))
+            samples = list(range(input_count))
             random.shuffle(samples)
             samples = samples[: self.max_imgs_per_batch]
             return sorted(samples)
         else:
-            return range(window_width)
+            return range(input_count)
 
     @abstractmethod
     def __call__(
