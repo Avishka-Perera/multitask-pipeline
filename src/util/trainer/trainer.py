@@ -764,8 +764,8 @@ class Trainer:
                 )
             else:
                 if "sampler" in datapath_conf.loader_params:
-                    raise NotImplementedError(
-                        "Custom sampler usage is not implemented for non-DDP setups"
+                    new_loader_params["sampler"] = make_obj_from_conf(
+                        datapath_conf.loader_params.sampler, data_source=ds
                     )
 
             return new_loader_params
@@ -792,7 +792,7 @@ class Trainer:
                     loss_frac = loss / dp_len
                     if loss_frac > 0.1:
                         self.logger.warn(
-                            f"{round(loss_frac*100,1)}% of the dataloader in the datapath '{dp_nm}' for the split '{split_nm}' will be dropped. Try repeating the datasets of the smaller ones."
+                            f"{round(loss_frac*100,1)}% of the dataloader in the datapath '{dp_nm}' for the split '{split_nm}' will be dropped. Try repeating the datasets of the smaller datasets."
                         )
 
                 return loader, samplers
