@@ -278,8 +278,8 @@ def get_shallow_vals(dic):
         if i != "tot":
             if type(dic[i]) == dict:
                 if dic[i]["tot"] is not None:
-                    shallow_dic[i] = dic[i]["tot"]
+                    shallow_dic[str(i)] = dic[i]["tot"]
             else:
                 if dic[i] is not None:
-                    shallow_dic[i] = dic[i]
+                    shallow_dic[str(i)] = dic[i]
     return shallow_dic
