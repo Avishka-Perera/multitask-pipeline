@@ -70,8 +70,9 @@ class LearnerMux(nn.Module):
         #         else:
         #             out[out_nm] = ch_ln_out
         for dp in self.datapath_names:
-            ln = getattr(self, dp)
-            out[dp] = ln(batch[dp])
-            batch[dp]["curr_epoch"] = batch["curr_epoch"]
+            if dp in batch:
+                ln = getattr(self, dp)
+                out[dp] = ln(batch[dp])
+                batch[dp]["curr_epoch"] = batch["curr_epoch"]
 
         return out
