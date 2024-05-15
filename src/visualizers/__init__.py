@@ -45,7 +45,7 @@ class BaseVisualizer:
             plt.show()
         else:
             self.writer.add_images(
-                self.name if loop is None else f"{self.name}/{loop}",
+                "Visualizers/" + (self.name if loop is None else f"{self.name}/{loop}"),
                 visualization,
                 self.global_step,
                 dataformats="HWC",
