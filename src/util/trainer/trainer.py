@@ -479,25 +479,20 @@ class Trainer:
             self.lr_scheduler.load_state_dict(lr_scheduler_state)
         return epoch
 
-    def _init_output(self, output_path, run_name):
+    def _init_output(self, output_path, job_name):
         # make output directories
-        if run_name is None:
-            output_path = os.path.abspath(
-                os.path.join(output_path, str(self.conf.name))
-            )
-            if os.path.exists(output_path):
-                id = 0
-                available_runs = os.listdir(output_path)
-                while f"run{id}" in available_runs:
-                    id += 1
-                output_path = os.path.join(output_path, f"run{id}")
-            else:
-                output_path = os.path.join(output_path, "run0")
+        if job_name is None:
+            job_name = str(self.conf.name)
+
+        output_path = os.path.abspath(os.path.join(output_path, job_name))
+        if os.path.exists(output_path):
+            id = 0
+            available_runs = os.listdir(output_path)
+            while f"run{id}" in available_runs:
+                id += 1
+            output_path = os.path.join(output_path, f"run{id}")
         else:
-            output_path = os.path.abspath(os.path.join(output_path, run_name))
-            if os.path.exists(output_path) and self.do_out:
-                self.logger.warn(f"Removing existing files at '{output_path}'")
-                shutil.rmtree(output_path)
+            output_path = os.path.join(output_path, "run0")
 
         if self.is_dist:
             dist.barrier()
@@ -511,15 +506,12 @@ class Trainer:
         self,
         args,
         output_path,
-        run_name: str,
+        job_name: str,
         resume_dir: str = None,
         force_resume: bool = False,
     ):
         # resume if ckpts are available
         if resume_dir is not None:
-            assert (
-                run_name is None
-            ), "'run_name' should not be specified with 'resume_dir'"
             if not os.path.exists(resume_dir):
                 raise FileNotFoundError(
                     f"Provided resume directory ({resume_dir}) dose not exist"
@@ -579,7 +571,7 @@ class Trainer:
                 min_loss = float("inf")
                 best_epoch = -1
         else:
-            output_path = self._init_output(output_path, run_name)
+            output_path = self._init_output(output_path, job_name)
 
             # init trackers
             start_epoch = 0
@@ -986,7 +978,7 @@ class Trainer:
         self,
         args,
         output_path: str = "out",
-        run_name: str = None,
+        job_name: str = None,
         mock_batch_count: Sequence[int] = [-1],
         mock_epoch_count: int = -1,
         resume_dir: str = None,
@@ -995,7 +987,7 @@ class Trainer:
     ) -> None:
 
         output_path, min_loss, start_epoch, best_epoch, history = self._init_fit(
-            args, output_path, run_name, resume_dir, force_resume
+            args, output_path, job_name, resume_dir, force_resume
         )
 
         train_ds, val_ds, test_ds = self._get_datasets(mock_batch_count)

@@ -62,9 +62,9 @@ def parse_args():
         default="out",
     )
     parser.add_argument(
-        "--run-name",
+        "--job-name",
         type=str,
-        help="Trailing directory name after '--output-dir'. Use this causiously since this will overright any existing files",
+        help="Name of the job. Overwrites config.name",
         default=None,
     )
     parser.add_argument(
@@ -196,7 +196,7 @@ def main(args, dist_pack):
     trainer.fit(
         args=args,
         output_path=args.output_path,
-        run_name=args.run_name,
+        job_name=args.job_name,
         mock_batch_count=args.mock_batch_count,
         mock_epoch_count=args.mock_epoch_count,
         resume_dir=args.resume_dir,
