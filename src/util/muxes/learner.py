@@ -1,7 +1,6 @@
 from torch import nn
 from typing import Sequence, Dict
 from ..util import load_class
-from ...learners import BaseLearner
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 
@@ -25,7 +24,7 @@ class LearnerMux(nn.Module):
             datapath_names.append(dp_nm)
             ch_cls = load_class(conf.target)
             params = conf.params if "params" in conf else {}
-            ch_obj: BaseLearner = ch_cls(encoder=self.encoder, **params)
+            ch_obj: nn.Module = ch_cls(encoder=self.encoder, **params)
             setattr(self, dp_nm, ch_obj)
 
             # # fill missing params with default params (full)

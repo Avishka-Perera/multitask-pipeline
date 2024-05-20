@@ -6,6 +6,7 @@ from typing import Sequence, Dict, Tuple, Any
 import yaml
 from torch.utils.data import Subset, DataLoader
 from torch import autocast
+from torch import nn
 from tqdm import tqdm
 import pandas as pd
 import omegaconf
@@ -21,11 +22,7 @@ from ..util import (
 )
 from ..dist import get_is_dist, get_mixed_prec
 from ..reporting import history_to_csv, history_to_img
-from ...losses import BaseLoss
-from ...evaluators import BaseEvaluator
 from ...visualizers import BaseVisualizer
-from ...learners import BaseLearner
-from ...datasets import BaseDataset, ConcatSet
 from ..data import ParallelDataLoader
 from torch.utils.data import Dataset
 from torch.optim import Adam
@@ -34,7 +31,7 @@ import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 import gc
-from functools import partial, reduce
+from functools import reduce
 from torch.utils.data._utils.collate import default_collate
 import datetime, time
 import glob
@@ -43,7 +40,6 @@ from ..muxes import LearnerMux, LossMux, VisualizerMux
 
 
 class Trainer:
-    already_trained_msg = "Training already done!"
 
     def _load_datasets(self) -> None:
         self.datasets = load_datasets(self.conf)
@@ -71,9 +67,9 @@ class Trainer:
             return devices
 
         if "params" in self.conf.learner.keys():
-            learner: BaseLearner = learner_class(**dict(self.conf.learner.params))
+            learner: nn.Module = learner_class(**dict(self.conf.learner.params))
         else:
-            learner: BaseLearner = learner_class()
+            learner: nn.Module = learner_class()
 
         # map the devices
         if "local_device_maps" in self.conf.learner.keys():
@@ -240,14 +236,6 @@ class Trainer:
             devices=self.devices,
             logger=self.logger,
         )
-
-    # def _load_evaluator(self) -> None:
-    #     self.evaluators: Dict[str, BaseEvaluator] = {}
-    #     if self.do_test:
-    #         for eval_nm, eval_conf in self.conf.test.evaluators.items():
-    #             eval_class = load_class(eval_conf.target)
-    #             params = dict(eval_conf.params) if "params" in eval_conf else {}
-    #             self.evaluators[eval_nm] = eval_class(**params)
 
     def _load_visualizer(self) -> None:
         self.visualizers: Dict[str, BaseVisualizer] = {}
@@ -1004,7 +992,7 @@ class Trainer:
         ) = self._get_fit_info(mock_epoch_count, train_dl, val_dl)
 
         if start_epoch >= epochs:
-            self.logger.info(self.already_trained_msg)
+            self.logger.info("Training already done!")
 
         best_ckpt_path = os.path.join(output_path, "ckpts", "best.ckpt")
         final_ckpt_path = os.path.join(output_path, "ckpts", "final.ckpt")
@@ -1037,8 +1025,8 @@ class Trainer:
                     dist.barrier()
 
                 # save extra checkpoints if specified
-                if epoch in self.ckpts.keys():
-                    name = self.ckpts[epoch].rstrip(".ckpt")
+                if epoch + 1 in self.ckpts.keys():
+                    name = self.ckpts[epoch + 1].rstrip(".ckpt")
                     self.logger.info(
                         f"Saving additional checkpoint '{name}' at {output_path}"
                     )
